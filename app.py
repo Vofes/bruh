@@ -1,85 +1,83 @@
 import streamlit as st
 import pandas as pd
+import requests
 from collections import Counter
 import io
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="Bruh Partner Tracker", page_icon="💬")
+# https://drive.google.com/file/d//view?usp=drivesdk
 
-st.title("💬 Bruh Partner Tracker")
-st.markdown("Analyze chat logs to find who 'bruhs' next to you.")
+# --- CONFIG ---
+# PASTE YOUR GOOGLE DRIVE FILE ID HERE
+FILE_ID = '1OF-SHDDp0dVdfXSm-rEifvkx5hWLBPa6' 
 
-# --- SIDEBAR CONFIG ---
-st.sidebar.header("Configuration")
-target_user = st.sidebar.text_input("Username to search", value="vofes")
-num_partners = st.sidebar.number_input("Amount of people to show (Recommended: 10)", 
-                                      min_value=1, max_value=100, value=10)
+st.set_page_config(page_title="Bruh Partner Tracker", page_icon="🧪")
 
-# --- FILE UPLOADER ---
-uploaded_file = st.file_uploader("Upload your chat log CSV (Up to 200MB)", type="csv")
+def get_confirm_token(response):
+    for key, value in response.cookies.items():
+        if key.startswith('download_warning'):
+            return value
+    return None
 
-if uploaded_file is not None:
-    # We use pandas to read the 100MB file quickly
-    with st.spinner('Processing large file...'):
-        try:
-            # Adjust names based on your chat log format
-            df = pd.read_csv(uploaded_file, header=None, names=['id', 'user', 'timestamp', 'message'])
-            
-            # 1. Filter only valid 'bruh' messages (Case-insensitive)
-            # We convert to string and check if it starts with 'bruh'
-            is_bruh = df['message'].str.strip().str.lower().str.startswith('bruh', na=False)
-            bruh_only_df = df[is_bruh].reset_index(drop=True)
-            
-            # 2. Extract users into a list for fast neighbor checking
-            bruh_users = bruh_only_df['user'].tolist()
-            
-            target_bruh_count = 0
-            partner_counts = Counter()
-            total_partner_interactions = 0
+@st.cache_data(show_spinner=False)
+def download_large_gdrive_file(file_id):
+    """Downloads large files from GDrive by bypassing the virus scan warning."""
+    URL = "https://docs.google.com/uc?export=download"
+    session = requests.Session()
+    response = session.get(URL, params={'id': file_id}, stream=True)
+    token = get_confirm_token(response)
 
-            # 3. Analyze Neighbors
-            for i in range(len(bruh_users)):
-                current_user = str(bruh_users[i])
-                
-                if current_user.lower() == target_user.lower():
-                    target_bruh_count += 1
-                    
-                    # Check partner ABOVE
-                    if i > 0:
-                        above = bruh_users[i-1]
-                        if str(above).lower() != target_user.lower():
-                            partner_counts[above] += 1
-                            total_partner_interactions += 1
-                            
-                    # Check partner BELOW
-                    if i < len(bruh_users) - 1:
-                        below = bruh_users[i+1]
-                        if str(below).lower() != target_user.lower():
-                            partner_counts[below] += 1
-                            total_partner_interactions += 1
+    if token:
+        params = {'id': file_id, 'confirm': token}
+        response = session.get(URL, params=params, stream=True)
+    
+    # Read the content into a pandas dataframe
+    return pd.read_csv(io.BytesIO(response.content), header=None, 
+                       names=['id', 'user', 'time', 'msg'], low_memory=False)
 
-            # --- DISPLAY RESULTS ---
-            st.divider()
-            col1, col2 = st.columns(2)
-            col1.metric("User Bruhs", target_bruh_count)
-            col2.metric("Total Partner Interactions", total_partner_interactions)
+# --- UI ---
+st.title("🧪 Bruh Partner Test")
+target_user = st.sidebar.text_input("Username to check", value="vofes")
+num_to_show = st.sidebar.number_input("Partners to show", min_value=1, value=10)
 
-            # Get top partners
-            top_partners = partner_counts.most_common(num_partners)
-            
-            if top_partners:
-                st.subheader(f"Top {num_partners} Bruh Partners")
-                # Create a clean table
-                results_df = pd.DataFrame(top_partners, columns=["Partner Username", "Interaction Count"])
-                st.table(results_df)
-                
-                # Download button for the results
-                csv_data = results_df.to_csv(index=False).encode('utf-8')
-                st.download_button("Download Results as CSV", data=csv_data, file_name="bruh_partners.csv", mime="text/csv")
-            else:
-                st.warning("No partners found for this user in the 'bruh' chain.")
+try:
+    with st.spinner("Accessing 100MB Google Drive file..."):
+        df = download_large_gdrive_file(FILE_ID)
+    
+    # 1. Logic: Filter for 'bruh'
+    bruh_mask = df['msg'].str.strip().str.lower().str.startswith('bruh', na=False)
+    bruh_users = df[bruh_mask]['user'].tolist()
+    
+    # 2. Logic: Find Neighbors
+    target_count = 0
+    partners = Counter()
+    total_matches = 0
+    
+    for i in range(len(bruh_users)):
+        if str(bruh_users[i]).lower() == target_user.lower():
+            target_count += 1
+            # Above
+            if i > 0:
+                above = str(bruh_users[i-1])
+                if above.lower() != target_user.lower():
+                    partners[above] += 1
+                    total_matches += 1
+            # Below
+            if i < len(bruh_users) - 1:
+                below = str(bruh_users[i+1])
+                if below.lower() != target_user.lower():
+                    partners[below] += 1
+                    total_matches += 1
 
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
-else:
-    st.info("Please upload a CSV file to begin.")
+    # 3. Results
+    st.success("Analysis Complete!")
+    c1, c2 = st.columns(2)
+    c1.metric(f"Bruhs by {target_user}", target_count)
+    c2.metric("Partner Interactions", total_matches)
+    
+    st.subheader(f"Top {num_to_show} Partners")
+    results = pd.DataFrame(partners.most_common(num_to_show), columns=["Username", "Count"])
+    st.table(results)
+
+except Exception as e:
+    st.error(f"Failed to load data: {e}")
+    st.info("Check if your File ID is correct and 'Anyone with the link' is enabled.")
