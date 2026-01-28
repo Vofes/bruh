@@ -62,7 +62,7 @@ if st.button("🚀 Fetch & Validate"):
             try:
                 output = "temp_logs.csv"
                 # Use the manual URL from the text box
-                gdown.download(drive_url_input, output, quiet=True, fuse=False)
+                gdown.download(drive_url_input, output, quiet=True)
                 
                 df_mistakes, total_valid = run_validation(output, int(start_input), int(jump_input))
                 
