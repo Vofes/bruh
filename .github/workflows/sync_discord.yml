@@ -1,5 +1,4 @@
 name: Discord Chat Sync
-
 on:
   schedule:
     - cron: '0 0 * * *'
@@ -8,31 +7,35 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    # Added permissions block to allow pushing code
+    permissions:
+      contents: write
+      
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # This ensures the token used has the right scope
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Download DiscordChatExporter
-      run: |
-        # This downloads the Linux version of the tool directly
-        curl -L https://github.com/Tyrrrz/DiscordChatExporter/releases/latest/download/DiscordChatExporter.Cli.linux-x64.zip -o dce.zip
-        unzip dce.zip -d dce
-        chmod +x dce/DiscordChatExporter.Cli
+      - name: Download DiscordChatExporter
+        run: |
+          curl -L https://github.com/Tyrrrz/DiscordChatExporter/releases/latest/download/DiscordChatExporter.Cli.linux-x64.zip -o dce.zip
+          unzip dce.zip -d dce
+          chmod +x dce/DiscordChatExporter.Cli
 
-    - name: Export Chat
-      run: |
-        # We run the tool directly from the folder we just made
-        ./dce/DiscordChatExporter.Cli export \
-          -t "${{ secrets.DISCORD_TOKEN }}" \
-          -c ${{ secrets.CHANNEL_ID }} \
-          -f Json \
-          -o chat_logs.json
+      - name: Export Chat
+        run: |
+          ./dce/DiscordChatExporter.Cli export \
+            -t "${{ secrets.DISCORD_TOKEN }}" \
+            -c ${{ secrets.CHANNEL_ID }} \
+            -f Json \
+            -o chat_logs.json
 
-    - name: Save file to GitHub
-      run: |
-        git config --global user.name 'GitHub Action'
-        git config --global user.email 'action@github.com'
-        git add chat_logs.json
-        git commit -m "Automated chat update" || exit 0
-        git push
+      - name: Save file to GitHub
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add chat_logs.json
+          # Only commit if there are changes to avoid errors
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Automated chat update" && git push)
