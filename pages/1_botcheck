@@ -1,0 +1,120 @@
+import streamlit as st
+import pandas as pd
+import re
+import gdown
+import io
+import csv
+
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="Bruh Bot Validator", layout="wide")
+st.title("🧮 Bruh Chain Validator")
+
+# --- SIDEBAR CONFIGURATION ---
+st.sidebar.header("Configuration")
+starting_bruh = st.sidebar.number_input("Starting Bruh Number", value=311925)
+jump_limit = st.sidebar.number_input("Jump Limit (Troll Filter)", value=500)
+# Drive link usually comes from st.secrets["DRIVE"]
+drive_url = st.secrets.get("DRIVE", "YOUR_FALLBACK_LINK_HERE")
+
+# --- CORE LOGIC ---
+def validate_bruhs(df, start_num, limit):
+    # Rule: "bruh" or "Bruh" + exactly one space + digits. 
+    # Must allow anything after a space following the digits.
+    pattern = re.compile(r'^(bruh|Bruh)\s(\d+)(\s.*)?$')
+    
+    valid_list = []
+    mistake_list = []
+    
+    is_active = False
+    current_target = start_num + 1
+    last_valid_num = start_num
+    recent_authors = [] # To track 2-person rule
+
+    for index, row in df.iterrows():
+        # Adjust column indices based on your CSV structure (Author: index 1, Msg: index 3)
+        author = str(row[1])
+        raw_msg = str(row[3]).strip()
+        line_info = f"Row {index + 2}" # +2 for Excel/CSV offset
+        
+        match = pattern.match(raw_msg)
+        if not match:
+            continue
+            
+        found_num = int(match.group(2))
+
+        # PHASE 1: Find the anchor
+        if not is_active:
+            if found_num == start_num:
+                is_active = True
+                recent_authors = [author]
+                continue
+            continue
+
+        # PHASE 2: Validation
+        if found_num == last_valid_num:
+            continue # Ignore duplicates without error
+
+        # 1. Check 2-Person Rule
+        is_breaking_rule = author in recent_authors
+
+        # 2. Check Sequence
+        if found_num == current_target:
+            if is_breaking_rule:
+                mistake_list.append([line_info, author, raw_msg, "2-Person Rule Violation", current_target, found_num])
+            else:
+                valid_list.append([line_info, author, raw_msg, "Valid", current_target, found_num])
+            
+            # Update state
+            last_valid_num = found_num
+            current_target += 1
+            recent_authors.append(author)
+            if len(recent_authors) > 2: recent_authors.pop(0)
+
+        else:
+            diff = found_num - current_target
+            
+            # Small Jump (The Mistake we want to log)
+            if 0 < diff <= limit:
+                mistake_list.append([line_info, author, raw_msg, f"Skip Detected (+{diff})", current_target, found_num])
+                current_target = found_num + 1
+                last_valid_num = found_num
+                recent_authors = [author]
+            
+            # Massive Jump or Rollback (Ignore/Log as Invalid)
+            else:
+                mistake_list.append([line_info, author, raw_msg, "Invalid/Troll Jump (Ignored)", current_target, found_num])
+
+    return valid_list, mistake_list
+
+# --- EXECUTION ---
+if st.button("Run Validation"):
+    with st.spinner("Downloading data from Drive..."):
+        try:
+            # Download file into memory
+            output = "logs.csv"
+            gdown.download(drive_url, output, quiet=False, fuse=False)
+            df = pd.read_csv(output)
+            
+            v_data, m_data = validate_bruhs(df, starting_bruh, jump_limit)
+            
+            # Convert to DataFrames for display
+            df_valid = pd.DataFrame(v_data, columns=["Line", "Author", "Message", "Status", "Expected", "Found"])
+            df_mistakes = pd.DataFrame(m_data, columns=["Line", "Author", "Message", "Status", "Expected", "Found"])
+            
+            # --- UI DISPLAY ---
+            col1, col2 = st.columns(2)
+            col1.metric("Valid Bruhs", len(df_valid))
+            col2.metric("Mistakes Found", len(df_mistakes))
+            
+            st.subheader("⚠️ Mistakes to Fix (CSV Output)")
+            st.dataframe(df_mistakes, use_container_width=True)
+            
+            # Download Button for CSV
+            csv_output = df_mistakes.to_csv(index=False).encode('utf-8')
+            st.download_button("Download Mistakes CSV", csv_output, "mistakes_to_fix.csv", "text/csv")
+            
+            with st.expander("View Valid Chain"):
+                st.dataframe(df_valid)
+                
+        except Exception as e:
+            st.error(f"Error processing: {e}")
