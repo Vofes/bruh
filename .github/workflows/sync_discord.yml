@@ -1,0 +1,43 @@
+name: Discord Chat Sync
+
+on:
+  schedule:
+    # This tells it to run every 24 hours (at midnight). 
+    # You can change this later if you want it faster!
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    # This adds a "Run" button so you can start it manually anytime.
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Install DiscordChatExporter
+      run: dotnet tool install -g DiscordChatExporter.Cli
+
+    - name: Export Chat
+      run: |
+        # This part uses the "Secrets" you saved earlier
+        # It downloads the chat and saves it as "chat_logs.json"
+        discord-chat-exporter-cli export \
+          -t "${{ secrets.DISCORD_TOKEN }}" \
+          -c ${{ secrets.CHANNEL_ID }} \
+          -f Json \
+          -o chat_logs.json
+
+    - name: Save file to GitHub
+      run: |
+        git config --global user.name 'GitHub Action'
+        git config --global user.email 'action@github.com'
+        git add chat_logs.json
+        git commit -m "Automated chat update" || exit 0
+        git push
