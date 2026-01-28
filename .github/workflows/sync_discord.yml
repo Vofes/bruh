@@ -13,19 +13,17 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 8.0.x
-
-    - name: Install DiscordChatExporter
+    - name: Download DiscordChatExporter
       run: |
-        dotnet tool install -g DiscordChatExporter.Cli
-        echo "/home/runner/.dotnet/tools" >> $GITHUB_PATH
+        # This downloads the Linux version of the tool directly
+        curl -L https://github.com/Tyrrrz/DiscordChatExporter/releases/latest/download/DiscordChatExporter.Cli.linux-x64.zip -o dce.zip
+        unzip dce.zip -d dce
+        chmod +x dce/DiscordChatExporter.Cli
 
     - name: Export Chat
       run: |
-        discord-chat-exporter-cli export \
+        # We run the tool directly from the folder we just made
+        ./dce/DiscordChatExporter.Cli export \
           -t "${{ secrets.DISCORD_TOKEN }}" \
           -c ${{ secrets.CHANNEL_ID }} \
           -f Json \
