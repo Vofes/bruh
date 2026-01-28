@@ -3,72 +3,146 @@ import pandas as pd
 import re
 import gdown
 import os
+import io
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Bruh Bot Check", layout="wide")
-st.title("🤖 Bruh Chain Validator")
+st.set_page_config(page_title="Bruh Bot Check", page_icon="🤖", layout="wide")
 
-# --- SIDEBAR: MANUAL INPUTS ---
-st.sidebar.header("Settings & Auth")
+st.title("🤖 Bruh Chain Bot Check")
+st.markdown("Validates the community 'bruh' sequence using the Discord log CSV.")
 
-# Put the TOKEN/URL here manually in the app
-drive_url_input = st.sidebar.text_input("Drive Download URL", type="password", help="Paste the direct download link here", value="1OF-SHDDp0dVdfXSm-rEifvkx5hWLBPa6")
+# --- SIDEBAR SETTINGS ---
+st.sidebar.header("Configuration")
+
+# Ask for the File ID (Token) instead of the full URL
+drive_id = st.sidebar.text_input("Google Drive File ID", type="password", help="The long string of characters in your Drive share link", value="1OF-SHDDp0dVdfXSm-rEifvkx5hWLBPa6")
 start_input = st.sidebar.text_input("Starting Bruh Number", value="311925")
 jump_input = st.sidebar.text_input("Troll Jump Limit", value="500")
 
-# Validation logic remains the same
+# --- VALIDATION ENGINE ---
 def run_validation(csv_path, start_num, limit):
+    # Matches 'bruh' or 'Bruh', one space, then digits. Allows extra text after.
     pattern = re.compile(r'^(bruh|Bruh)\s(\d+)(\s.*)?$')
-    df = pd.read_csv(csv_path)
-    mistakes, is_active, valid_count = [], False, 0
-    current_target, last_valid, authors = start_num + 1, start_num, []
+    
+    # We use on_bad_lines='skip' to prevent crashes from extra commas in messages
+    try:
+        df = pd.read_csv(csv_path, on_bad_lines='skip', engine='python', encoding='utf-8-sig')
+    except Exception as e:
+        st.error(f"Failed to parse CSV: {e}")
+        return pd.DataFrame(), 0
+    
+    mistakes = []
+    valid_count = 0
+    is_active = False
+    current_target = start_num + 1
+    last_valid_num = start_num
+    recent_authors = [] 
 
     for i, row in df.iterrows():
         try:
-            author, raw_msg = str(row[1]), str(row[3]).strip()
+            # Using .iloc ensures we grab columns by position regardless of header names
+            # Col 1: Author, Col 3: Message
+            author = str(row.iloc[1])
+            raw_msg = str(row.iloc[3]).strip()
+            line_id = i + 2 
+            
             match = pattern.match(raw_msg)
-            if not match: continue
+            if not match:
+                continue
+                
             found_num = int(match.group(2))
 
+            # Phase 1: Search for anchor
             if not is_active:
                 if found_num == start_num:
-                    is_active, authors = True, [author]
+                    is_active = True
+                    recent_authors = [author]
                 continue
 
-            if found_num == last_valid: continue
+            # Phase 2: Logic
+            if found_num == last_valid_num:
+                continue # Ignore duplicate numbers
+
+            is_double_bruh = author in recent_authors
 
             if found_num == current_target:
-                if author in authors:
-                    mistakes.append({"Line": i+2, "Author": author, "Msg": raw_msg, "Reason": "2-Person Rule"})
+                if is_double_bruh:
+                    mistakes.append({"Line": line_id, "Author": author, "Message": raw_msg, "Reason": "2-Person Rule"})
                 else:
                     valid_count += 1
+                
+                last_valid_num = found_num
                 current_target += 1
-                last_valid = found_num
-                authors = (authors + [author])[-2:]
-            elif 0 < (found_num - current_target) <= limit:
-                mistakes.append({"Line": i+2, "Author": author, "Msg": raw_msg, "Reason": "Skip"})
-                current_target, last_valid, authors = found_num + 1, found_num, [author]
+                recent_authors = (recent_authors + [author])[-2:] # Track last 2 people
+
             else:
-                mistakes.append({"Line": i+2, "Author": author, "Msg": raw_msg, "Reason": "Invalid/Troll"})
-        except: continue
+                diff = found_num - current_target
+                
+                # Small Skip
+                if 0 < diff <= limit:
+                    mistakes.append({"Line": line_id, "Author": author, "Message": raw_msg, "Reason": f"Skip detected (+{diff})"})
+                    current_target = found_num + 1
+                    last_valid_num = found_num
+                    recent_authors = [author] 
+                
+                # Massive Jump or Backwards
+                else:
+                    mistakes.append({"Line": line_id, "Author": author, "Message": raw_msg, "Reason": "Invalid/Troll Number"})
+        except Exception:
+            continue
+
     return pd.DataFrame(mistakes), valid_count
 
-# --- BUTTON TO EXECUTE ---
-if st.button("🚀 Fetch & Validate"):
-    if not drive_url_input:
-        st.error("Please provide the Drive URL in the sidebar!")
+# --- EXECUTION ---
+if st.button("🚀 Run Bot Check"):
+    if not drive_id:
+        st.error("Please enter the Google Drive File ID in the sidebar.")
     else:
-        with st.spinner("Downloading..."):
+        # Construct the direct download URL from the ID
+        direct_url = f'https://drive.google.com/uc?export=download&id={drive_id}'
+        
+        with st.spinner("Downloading and scanning logs..."):
             try:
                 output = "temp_logs.csv"
-                # Use the manual URL from the text box
-                gdown.download(drive_url_input, output, quiet=True)
+                gdown.download(direct_url, output, quiet=True)
                 
-                df_mistakes, total_valid = run_validation(output, int(start_input), int(jump_input))
+                # Verify if the download is actually a webpage (Access Denied)
+                with open(output, 'r', encoding='utf-8', errors='ignore') as f:
+                    chunk = f.read(200)
+                    if "<!DOCTYPE html>" in chunk or "<html" in chunk:
+                        st.error("❌ Access Denied. Make sure the Drive file is set to 'Anyone with the link can view'.")
+                        os.remove(output)
+                        st.stop()
+
+                # Convert inputs to integers
+                start_val = int(start_input)
+                jump_val = int(jump_input)
+
+                df_mistakes, total_valid = run_validation(output, start_val, jump_val)
                 
-                st.metric("Valid Count", total_valid)
-                st.dataframe(df_mistakes)
+                # Display Results
+                st.divider()
+                c1, c2 = st.columns(2)
+                c1.metric("Valid Bruhs", total_valid)
+                c2.metric("Mistakes Recorded", len(df_mistakes))
                 
-                if os.path.exists(output): os.remove(output)
+                if not df_mistakes.empty:
+                    st.subheader("📋 Mistake Log")
+                    st.dataframe(df_mistakes, use_container_width=True)
+                    
+                    csv_data = df_mistakes.to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 Download Report CSV", csv_data, "bruh_mistakes.csv", "text/csv")
+                else:
+                    st.success("The chain is perfect! No mistakes found.")
+                
+                # Cleanup
+                if os.path.exists(output):
+                    os.remove(output)
+                    
+            except ValueError:
+                st.error("Please ensure Start Number and Jump Limit are valid integers.")
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"An unexpected error occurred: {e}")
+
+st.divider()
+st.caption("Instructions: Get your Google Drive file ID from the share link. Ensure the file is shared as 'Anyone with the link can view'.")
