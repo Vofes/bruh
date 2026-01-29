@@ -2,15 +2,16 @@ import streamlit as st
 import pandas as pd
 import requests
 from datetime import datetime, timezone
-# Import your guide logic from the src folder
-from src.guide_loader import display_guide 
+# Correct import from your specific file structure
+from src.guide_loader import render_markdown_guide 
 
-# 1. Configuration
+# 1. Configuration - Link must be in Streamlit Secrets with dl=1
 DB_LINK = st.secrets["DROPBOXLINK"]
 
 def get_last_sync_info():
     """Checks the Dropbox file metadata for a rough sync estimate."""
     try:
+        # Use GET with stream=True to reliably fetch headers
         response = requests.get(DB_LINK, stream=True)
         last_mod_str = response.headers.get('last-modified')
         if last_mod_str:
@@ -28,17 +29,24 @@ def get_last_sync_info():
 
 @st.cache_data(ttl=3600) 
 def load_data():
-    """Downloads CSV, cleans headers, and handles UTC timestamps."""
+    """Downloads CSV from Dropbox, cleans headers, and handles UTC timestamps."""
+    # Load with header=None because our GitHub Action saves without headers
     df = pd.read_csv(DB_LINK, header=None, dtype=str, low_memory=False)
-    # Mapping based on our sync logic
+    
+    # Map columns based on our sync logic: ID, Author, Timestamp, Content
     df.columns = ['MessageID', 'Author', 'Timestamp', 'Content'] + [f'col_{i}' for i in range(4, len(df.columns))]
     
-    # Clean up Timestamp to UTC
+    # Convert Timestamp to UTC and coerce errors to skip stray header text
     df['Timestamp'] = pd.to_datetime(df['Timestamp'], utc=True, errors='coerce')
-    df = df.dropna(subset=['Timestamp']).sort_values(by='Timestamp')
+    
+    # Drop rows that failed conversion (like the word 'Timestamp' itself)
+    df = df.dropna(subset=['Timestamp'])
+    
+    # Sort so the newest messages are always at the bottom
+    df = df.sort_values(by='Timestamp', ascending=True)
     return df
 
-# --- Sidebar: Live Status ---
+# --- Sidebar Status ---
 st.sidebar.title("📡 Live Status")
 hours, mins = get_last_sync_info()
 
@@ -51,14 +59,16 @@ else:
 # --- Main App Logic ---
 st.title("Discord Chat Analytics")
 
-# 1. Use the Guide from your src file
-display_guide()
+# 1. Render the Guide using your custom loader
+# Wrap it in an expander if you don't want it taking up the whole screen
+with st.expander("📖 View Bruh-App Guide"):
+    render_markdown_guide("guides/bruhapp-guide.md")
 
 # 2. Load Data
-with st.spinner("Fetching latest messages..."):
+with st.spinner("Fetching latest messages from Dropbox..."):
     df = load_data()
 
-# 3. Data Insights (Total rows and Latest Timestamp)
+# 3. Data Insights (The human-readable stats)
 if not df.empty:
     st.divider()
     col1, col2 = st.columns(2)
@@ -67,14 +77,14 @@ if not df.empty:
         st.metric("Total Messages", f"{len(df):,}")
     
     with col2:
+        # Get latest timestamp from actual data (most accurate)
         latest_msg_time = df['Timestamp'].max()
-        # Human-readable UTC format
         human_time = latest_msg_time.strftime("%A, %b %d, %Y at %I:%M %p UTC")
         st.write("**Latest Message In Data:**")
         st.info(f"🕒 {human_time}")
     st.divider()
 else:
-    st.error("Dataframe is empty. Please check the source file.")
+    st.error("Dataframe is empty. Please check your source file and link.")
 
 # 4. Preview
 with st.expander("View Latest 10 Rows"):
