@@ -16,21 +16,16 @@ with st.sidebar:
     
     st.divider()
     st.subheader("Viewport Control")
-    show_raw = st.checkbox("Show Raw Data", value=True)
-    v_start = st.number_input("View Start Row", value=0, min_value=0)
-    v_end = st.number_input("View End Row", value=min(10000, len(df)), min_value=0)
+    # THE FIX: Checkbox now controls the visibility of the RAW table
+    show_raw = st.checkbox("Show Raw Data Log", value=False)
+    v_start = st.number_input("View Start Row", value=400000)
+    v_end = st.number_input("View End Row", value=500000)
     
     run = st.button("🚀 Run Full BotCheck", use_container_width=True)
 
 if not run:
     st.title("📖 Bruh-BotCheck Guide")
-    with st.expander("How to use this tool", expanded=True):
-        st.markdown("""
-        1. **Start Bruh:** The number where you want to begin checking.
-        2. **End Bruh:** Set a target number to stop at, or `0` to scan everything.
-        3. **View Rows:** These boxes control which part of the file you see in the tables below.
-        4. **Run:** Click the button in the sidebar to process the sequence.
-        """)
+    st.info("Set your parameters in the sidebar and click 'Run' to see results.")
 
 if run:
     with st.spinner("🧠 Scanning sequence..."):
@@ -39,18 +34,28 @@ if run:
     if found:
         st.success(f"**Validated up to:** {last_val}")
     else:
-        st.error(f"**Anchor rejected.** Previous 10 bruhs not found for #{start_bruh}")
+        st.error(f"**Anchor rejected.** Previous 10 bruhs not found for #{start_bruh}. Check your 'Starting Bruh #' value.")
 
+    # Filter results by viewport
     m_view = res_m[(res_m['Line'] >= v_start) & (res_m['Line'] <= v_end)] if not res_m.empty else res_m
     s_view = res_s[(res_s['Line'] >= v_start) & (res_s['Line'] <= v_end)] if not res_s.empty else res_s
 
-    col1, col2 = st.columns([1, 1]) if show_raw else (st.container(), None)
-    with col1:
-        if show_raw: st.subheader("📄 Raw Log")
-        st.dataframe(df.iloc[v_start:v_end, [1, 3]], use_container_width=True)
-    if col2:
-        with col2:
-            st.subheader("📊 Results")
-            t1, t2 = st.tabs(["❌ Mistakes", "✅ Valid"])
-            t1.dataframe(m_view, use_container_width=True)
-            t2.dataframe(s_view, use_container_width=True)
+    # UI LAYOUT: If show_raw is True, we split 50/50. If False, Results take 100%.
+    if show_raw:
+        col_raw, col_res = st.columns([1, 1])
+        with col_raw:
+            st.subheader("📄 Raw Log")
+            st.dataframe(df.iloc[v_start:v_end, [1, 3]], use_container_width=True, height=600)
+        res_container = col_res
+    else:
+        res_container = st.container()
+
+    with res_container:
+        st.subheader("📊 BotCheck Results")
+        t1, t2 = st.tabs(["❌ Mistakes", "✅ Valid"])
+        with t1:
+            st.metric("Mistakes in View", len(m_view))
+            st.dataframe(m_view, use_container_width=True)
+        with t2:
+            st.metric("Valid Bruhs in View", len(s_view))
+            st.dataframe(s_view, use_container_width=True)
