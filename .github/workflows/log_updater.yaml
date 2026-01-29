@@ -28,23 +28,29 @@ jobs:
             -d refresh_token="${{ secrets.DROPBOX_REFRESH_TOKEN }}" | jq -r '.access_token')
           echo "atoken=$TOKEN" >> $GITHUB_OUTPUT
 
+
+      # ... previous steps (Setup Tools, Get Fresh Dropbox Token) ...
+
+      - name: Install Python Dependencies
+        run: pip install pandas
+
       - name: Download & Merge Logs
         run: |
-          # 1. Download existing file from Dropbox
+          # 1. Download existing file
           curl -L "https://www.dropbox.com/scl/fi/ine04ie48l60j6pj804px/chat_logs.csv?rlkey=3bhydbcigk7ndawwrdee7pv8f&st=igoinb9c&dl=1" -o history.csv
-
           
-          # 2. Export last 7 days from Discord
+          # 2. Export last 7 days
           ./dce/DiscordChatExporter.Cli export \
             -t "${{ secrets.DISCORD_TOKEN }}" \
             -c ${{ secrets.CHANNEL_ID }} \
             -f Csv -o recent.csv \
             --after $(date -d "7 days ago" +%Y-%m-%d)
 
-          # 3. Merge files using Python (The "Edit-Fixer" logic)
+          # 3. Merge files (The Edit-Fixer)
           python3 -c "
           import pandas as pd
           try:
+              # Read with low_memory to handle large files
               h = pd.read_csv('history.csv', low_memory=False)
               a = pd.read_csv('recent.csv', low_memory=False)
               
@@ -52,12 +58,12 @@ jobs:
               h[id_col] = h[id_col].astype(str)
               a[id_col] = a[id_col].astype(str)
 
-              # This line removes old versions so the new edits in 'a' take over
+              # Filter out old versions of the last 7 days
               h_filtered = h[~h[id_col].isin(a[id_col])]
               
               final = pd.concat([h_filtered, a]).sort_values(by=id_col)
               final.to_csv('chat_logs.csv', index=False)
-              print('Merge successful')
+              print('Merge successful!')
           except Exception as e:
               print(f'Merge failed: {e}')
               exit(1)
