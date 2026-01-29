@@ -4,7 +4,7 @@ import re
 def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=False):
     pattern = re.compile(r'^bruh\s+(\d+)', re.IGNORECASE)
     
-    # 1. Fast extraction of ALL bruh attempts
+    # 1. Extraction with zero-risk typing
     all_attempts = []
     for i, row in df.iterrows():
         try:
@@ -12,18 +12,21 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
             match = pattern.match(msg)
             if match:
                 all_attempts.append({
-                    "Line": int(i), 
+                    "Line": i, 
                     "Author": str(row.iloc[1]), 
                     "Num": int(match.group(1)), 
                     "Msg": msg
                 })
         except: continue
 
-    all_mistakes, winners = [], []
-    active_status, last_valid_num, current_target = False, None, None
+    winners = []
+    all_mistakes = []
+    active_status = False
+    last_valid_num = None
+    current_target = None
     recent_authors = []
 
-    # 2. Validation Loop
+    # 2. Logic Loop
     for idx, item in enumerate(all_attempts):
         line, author, found_num, msg = item["Line"], item["Author"], item["Num"], item["Msg"]
         
@@ -32,9 +35,9 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
 
         if not active_status:
             if found_num == start_num:
-                # Optimized anchor check
-                lookback = {a["Num"] for a in all_attempts[max(0, idx-20):idx]}
-                if set(range(start_num - 5, start_num)).issubset(lookback):
+                # Simple lookback check
+                lookback = {a["Num"] for a in all_attempts[max(0, idx-15):idx]}
+                if any(n in lookback for n in range(start_num-5, start_num)):
                     active_status, last_valid_num, current_target = True, found_num, found_num + 1
                     winners.append({"Line": line, "Author": author, "Num": found_num, "Msg": msg})
                     recent_authors = [author]
@@ -48,23 +51,25 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
                 last_valid_num, current_target = found_num, found_num + 1
                 recent_authors = (recent_authors + [author])[-2:]
         else:
+            # Consensus check
             lookahead = all_attempts[idx+1 : idx+4]
             is_consensus = len(lookahead) == 3 and all(lookahead[k]["Num"] == found_num + k + 1 for k in range(3))
             
             if is_consensus and abs(found_num - last_valid_num) <= max_jump:
                 diff = found_num - last_valid_num
-                if diff < 0: # Rollback logic
+                if diff < 0: # Rollback
                     winners = [s for s in winners if s["Num"] < found_num]
-                    winners.append({"Line": line, "Author": author, "Num": found_num, "Msg": msg})
                 
-                all_mistakes.append({"Line": line, "Author": author, "Num": found_num, "Msg": msg, "Reason": f"Jump ({diff:+})"})
+                # Jumps go to mistakes list
+                all_mistakes.append({"Line": line, "Author": author, "Num": found_num, "Msg": msg, "Reason": f"Jump/Rollback ({diff:+})"})
+                winners.append({"Line": line, "Author": author, "Num": found_num, "Msg": msg})
                 last_valid_num, current_target, recent_authors = found_num, found_num + 1, [author]
             elif not hide_invalid:
                 all_mistakes.append({"Line": line, "Author": author, "Num": found_num, "Msg": msg, "Reason": "No Consensus"})
 
-    # 3. SET-BASED LOST LOGIC (Strict Type Casting)
-    df_winners = pd.DataFrame(winners).astype({"Line": int, "Author": str, "Num": int, "Msg": str}) if winners else pd.DataFrame(columns=["Line", "Author", "Num", "Msg"])
-    winner_nums = set(df_winners["Num"])
+    # 3. Final Selection Logic (The "Lost" List)
+    # We use basic Python dictionaries to avoid Pandas/Arrow overflow errors
+    winner_nums = {s["Num"] for s in winners}
     
     lost_data = []
     seen_lost = set()
@@ -75,7 +80,4 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
                 lost_data.append(item)
                 seen_lost.add(n)
 
-    df_lost = pd.DataFrame(lost_data).astype({"Line": int, "Author": str, "Num": int, "Msg": str}) if lost_data else pd.DataFrame(columns=["Line", "Author", "Num", "Msg"])
-    df_mistakes = pd.DataFrame(all_mistakes)
-    
-    return df_winners, df_lost, df_mistakes, last_valid_num
+    return pd.DataFrame(winners), pd.DataFrame(lost_data), pd.DataFrame(all_mistakes), last_valid_num
