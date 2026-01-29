@@ -21,9 +21,7 @@ with st.sidebar:
     start_bruh = st.number_input("Starting Bruh #", value=311925)
     end_bruh = st.number_input("Ending Bruh # (0 for End)", value=0)
     jump_limit = st.number_input("Max Jump Allowed", value=1500)
-    
-    # --- NEW CHECKBOX ---
-    hide_invalid = st.checkbox("Hide 'No Consensus' Bruhs", value=False, help="Hides messages that aren't a valid number or failed consensus check.")
+    hide_invalid = st.checkbox("Hide 'No Consensus' Bruhs", value=False)
     
     st.divider()
     st.subheader("Viewport Control")
@@ -39,32 +37,42 @@ if not run:
 
 if run:
     with st.spinner("🧠 Scanning sequence..."):
-        # Updated to include hide_invalid parameter
+        # The engine runs on the WHOLE dataframe
         res_m, res_s, found, last_val = run_botcheck_logic(df, start_bruh, end_bruh, jump_limit, hide_invalid)
     
-    if found:
-        st.success(f"**Validated up to:** {last_val}")
-    else:
-        st.error(f"**Anchor rejected.** Previous 10 bruhs not found for #{start_bruh}.")
+    # --- GLOBAL STATS (Unfiltered) ---
+    st.header("📊 Global Analysis Results")
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        if found:
+            st.success(f"**Chain Validated To:** {last_val}")
+        else:
+            st.error("Anchor Not Found")
+    with col_b:
+        st.metric("Total Mistakes Found", len(res_m))
+    with col_c:
+        st.metric("Total Successful Bruhs", len(res_s))
 
-    m_view = res_m[(res_m['Line'] >= v_start) & (res_m['Line'] <= v_end)] if not res_m.empty else res_m
-    s_view = res_s[(res_s['Line'] >= v_start) & (res_s['Line'] <= v_end)] if not res_s.empty else res_s
+    st.divider()
+
+    # --- VIEWPORT FILTERING (Display Only) ---
+    # We filter the results ONLY for the dataframe display
+    m_view = res_m[(res_m['Line'] >= v_start) & (res_m['Line'] <= v_end)]
+    s_view = res_s[(res_s['Line'] >= v_start) & (res_s['Line'] <= v_end)]
 
     if show_raw:
         col_raw, col_res = st.columns([1, 1])
         with col_raw:
-            st.subheader("📄 Raw Log")
+            st.subheader(f"📄 Raw Log (Rows {v_start}-{v_end})")
             st.dataframe(df.iloc[v_start:v_end, [1, 3]], use_container_width=True, height=600)
         res_container = col_res
     else:
         res_container = st.container()
 
     with res_container:
-        st.subheader("📊 BotCheck Results")
-        t1, t2 = st.tabs(["❌ Mistakes", "✅ Valid & Corrections"])
+        st.subheader(f"🔎 Viewport Results (Rows {v_start}-{v_end})")
+        t1, t2 = st.tabs(["❌ Mistakes In View", "✅ Valid In View"])
         with t1:
-            st.metric("Mistakes in View", len(m_view))
             st.dataframe(m_view, use_container_width=True)
         with t2:
-            st.metric("Successful Bruhs in View", len(s_view))
             st.dataframe(s_view, use_container_width=True)
