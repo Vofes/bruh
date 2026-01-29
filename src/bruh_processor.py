@@ -48,19 +48,24 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
             
             if is_consensus and abs(diff) <= max_jump:
                 if diff < 0:
+                    # Rollback Logic
                     for entry in all_successes:
                         m = pattern.match(entry["Msg"])
                         if m and int(m.group(1)) >= found_num:
                             entry["Status"] = "CORRECT-FIX"
+                    
                     all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
                     all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Rollback ({diff:+})"})
                 else:
+                    # Positive Jump - No credit given to the jump itself
                     all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Jump ({diff:+})"})
+                
                 last_valid_num, current_target, recent_authors = found_num, found_num + 1, [author]
             elif not hide_invalid:
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Invalid/No Consensus"})
 
     res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
     res_s = pd.DataFrame(all_successes) if all_successes else pd.DataFrame(columns=cols_s)
+    
     unique_count = len(res_s[res_s["Status"] == "CORRECT"])
     return res_m, res_s, active_status, last_valid_num, unique_count
