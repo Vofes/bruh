@@ -43,6 +43,10 @@ if full_df is not None:
     def validate_with_pivots_and_resets(df, start_num, limit):
         pattern = re.compile(r'^bruh\s+(\d+)', re.IGNORECASE)
         
+        # Consistent column headers to prevent KeyErrors
+        cols_m = ["Line", "Author", "Msg", "Reason"]
+        cols_s = ["Line", "Author", "Msg", "Status"]
+
         bruh_rows = []
         for i, row in df.iterrows():
             try:
@@ -57,9 +61,8 @@ if full_df is not None:
 
         all_mistakes, all_successes = [], []
         active_status = False
-        current_target = None
-        last_valid_num = None
-        recent_authors = [] # This stores the last 2 authors
+        current_target, last_valid_num = None, None
+        recent_authors = []
 
         for idx, item in enumerate(bruh_rows):
             i, author, msg, found_num = item["index"], item["author"], item["msg"], item["num"]
@@ -75,7 +78,6 @@ if full_df is not None:
 
             if found_num == last_valid_num: continue
 
-            # --- CASE 1: PERFECT SEQUENCE ---
             if found_num == current_target:
                 if author in recent_authors:
                     all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule"})
@@ -84,14 +86,11 @@ if full_df is not None:
                 
                 last_valid_num = found_num
                 current_target += 1
-                # Update history (keep only last 2)
                 recent_authors = (recent_authors + [author])[-2:]
 
-            # --- CASE 2: DEVIATION (POTENTIAL PIVOT) ---
             else:
                 lookahead = bruh_rows[idx+1 : idx+4]
                 is_consensus = False
-                
                 if len(lookahead) == 3:
                     if (lookahead[0]["num"] == found_num + 1 and 
                         lookahead[1]["num"] == found_num + 2 and 
@@ -105,23 +104,32 @@ if full_df is not None:
                         "Line": i, "Author": author, "Msg": msg, 
                         "Reason": f"Confirmed {label} ({diff:+} from {last_valid_num})"
                     })
-                    
-                    # --- THE FIX: RESET HISTORY ---
-                    # Because a pivot occurred, we wipe previous authors 
-                    # so the 2-person rule starts fresh from this pivot point.
+                    # RESET: New target and fresh author history
                     current_target = found_num + 1
                     last_valid_num = found_num
                     recent_authors = [author] 
                 else:
                     all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Invalid / No Consensus"})
 
-        return pd.DataFrame(all_mistakes), pd.DataFrame(all_successes), active_status
+        # Final check: Force columns if lists are empty
+        res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
+        res_s = pd.DataFrame(all_successes) if all_successes else pd.DataFrame(columns=cols_s)
+        
+        return res_m, res_s, active_status
 
     if run_check:
         df_m_all, df_v_all, anchor_found = validate_with_pivots_and_resets(full_df, anchor_num, jump_limit)
 
-        df_m_view = df_m_all[(df_m_all['Line'] >= view_start) & (df_m_all['Line'] <= view_end)]
-        df_v_view = df_v_all[(df_v_all['Line'] >= view_start) & (df_v_all['Line'] <= view_end)]
+        # Safety Check: Use .get() or check columns before filtering
+        if not df_m_all.empty and 'Line' in df_m_all.columns:
+            df_m_view = df_m_all[(df_m_all['Line'] >= view_start) & (df_m_all['Line'] <= view_end)]
+        else:
+            df_m_view = df_m_all
+
+        if not df_v_all.empty and 'Line' in df_v_all.columns:
+            df_v_view = df_v_all[(df_v_all['Line'] >= view_start) & (df_v_all['Line'] <= view_end)]
+        else:
+            df_v_view = df_v_all
 
         if show_raw_view:
             col1, col2 = st.columns([1, 1])
