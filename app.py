@@ -14,7 +14,6 @@ def load_full_data(d_id):
     output = "temp_data.csv"
     try:
         gdown.download(url, output, quiet=True)
-        # Using python engine for better compatibility
         df = pd.read_csv(output, on_bad_lines='skip', engine='python', encoding='utf-8-sig')
         if os.path.exists(output): os.remove(output)
         return df
@@ -27,22 +26,21 @@ drive_id = st.secrets.get("DRIVE", "")
 full_df = load_full_data(drive_id)
 
 if full_df is not None:
-    # --- CLEANING DATA FOR VIEWING ---
-    # Assuming standard export: 0:ID, 1:Author, 2:Timestamp, 3:Message
-    # We create a display version without columns 0 and 2
+    # Clean raw view: Drop User ID (0) and Timestamp (2)
     display_df = full_df.copy()
-    columns_to_drop = []
-    if len(display_df.columns) >= 3:
-        columns_to_drop = [display_df.columns[0], display_df.columns[2]]
-    viewable_df = display_df.drop(columns=columns_to_drop)
+    if len(display_df.columns) >= 4:
+        cols_to_keep = [display_df.columns[1], display_df.columns[3]]
+        viewable_df = display_df[cols_to_keep]
+    else:
+        viewable_df = display_df
 
     with st.sidebar:
         st.header("🔍 Viewport Settings")
-        view_start = st.number_input("View Start (Row Index)", value=0, min_value=0)
-        view_end = st.number_input("View End (Row Index)", value=len(full_df), min_value=0)
+        view_start = st.number_input("View Start (Row)", value=0, min_value=0)
+        view_end = st.number_input("View End (Row)", value=len(full_df), min_value=0)
         
         st.header("⚙️ Bot Logic")
-        anchor_num = st.number_input("Starting Bruh # (Scan Anchor)", value=311925)
+        anchor_num = st.number_input("Starting Bruh #", value=311925)
         jump_limit = st.number_input("Jump Limit", value=500)
         
         st.divider()
@@ -54,14 +52,13 @@ if full_df is not None:
         pattern = re.compile(r'^bruh\s+(\d+)', re.IGNORECASE)
         all_mistakes, all_successes = [], []
         
-        is_active = False
+        active_status = False
         current_target = None
         last_valid_num = None
         recent_authors = []
 
         for i, row in df.iterrows():
             try:
-                # Basic validation: ensuring we have the message at index 3 and author at index 1
                 author = str(row.iloc[1])
                 raw_msg = str(row.iloc[3]).strip()
                 match = pattern.match(raw_msg)
@@ -69,17 +66,15 @@ if full_df is not None:
                 
                 found_num = int(match.group(1))
 
-                # Phase 1: Search for Anchor
-                if not is_active:
+                if not active_status:
                     if found_num == start_num:
-                        is_active = True
+                        active_status = True
                         current_target = found_num + 1
                         last_valid_num = found_num
                         recent_authors = [author]
                         all_successes.append({"Line": i, "Author": author, "Msg": raw_msg, "Status": "ANCHOR"})
                     continue
 
-                # Phase 2: Sequence Check
                 if found_num == last_valid_num: continue
 
                 if found_num == current_target:
@@ -107,13 +102,14 @@ if full_df is not None:
         cols_s = ["Line", "Author", "Msg", "Status"]
         res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
         res_s = pd.DataFrame(all_successes) if all_successes else pd.DataFrame(columns=cols_s)
-        return res_m, res_s
+        
+        return res_m, res_s, active_status
 
     # --- MAIN EXECUTION ---
     if run_check:
-        df_m_all, df_v_all = validate_entire_file(full_df, anchor_num, jump_limit)
+        df_m_all, df_v_all, anchor_found = validate_entire_file(full_df, anchor_num, jump_limit)
 
-        # Filter Viewport
+        # Filter Viewport based on the 'Line' index we saved
         df_m_filtered = df_m_all[(df_m_all['Line'] >= view_start) & (df_m_all['Line'] <= view_end)] if not df_m_all.empty else df_m_all
         df_v_filtered = df_v_all[(df_v_all['Line'] >= view_start) & (df_v_all['Line'] <= view_end)] if not df_v_all.empty else df_v_all
 
@@ -121,14 +117,14 @@ if full_df is not None:
 
         with col1:
             st.subheader("📄 Raw Data View")
-            # Showing only Author and Message for clarity
             st.dataframe(viewable_df.iloc[view_start:view_end], width='stretch', height=600)
 
         with col2:
             st.subheader("📊 Validation Results")
-            if is_active == False and not full_df.empty:
-                st.error(f"⚠️ Anchor number {anchor_num} was NOT found in the CSV. Logs will stay empty.")
-
+            
+            if not anchor_found:
+                st.error(f"❌ Anchor Bruh #{anchor_num} was not found in the file. No validation could occur.")
+            
             t_err, t_ok = st.tabs(["❌ Mistakes", "✅ Success Log"])
             
             with t_err:
@@ -139,6 +135,8 @@ if full_df is not None:
                 if show_v:
                     st.metric("Valid Bruhs in View", len(df_v_filtered))
                     st.dataframe(df_v_filtered, width='stretch')
+                else:
+                    st.info("Success log is hidden.")
 
 else:
-    st.info("Please set your DRIVE secret to load data.")
+    st.info("Ensure your Google Drive ID is correctly entered in Secrets.")
