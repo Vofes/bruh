@@ -44,41 +44,46 @@ jobs:
             --after $(date -d "50 days ago" +%Y-%m-%d)
 
           # 3. Python Merge Logic
-          python3 -c "
+
+            python3 -c "
           import pandas as pd
           try:
-              # 1. Force ID columns to be STRINGS immediately on load
-              # This prevents the '1.23E+17' corruption
+              # 1. Load as strings to prevent corruption
               h = pd.read_csv('master_history.csv', dtype=str, low_memory=False)
               a = pd.read_csv('recent_slice.csv', dtype=str, low_memory=False)
-              
-              id_col = h.columns[0]
               
               print(f'Original Master Rows: {len(h)}')
               print(f'New Slice Rows: {len(a)}')
               
-              # 2. Identify IDs in the new slice
-              new_ids = a[id_col].unique()
+              # 2. Get the name of the first column in both files
+              # Even if one is 'ID' and one is 'Message Id'
+              master_id_name = h.columns[0]
+              slice_id_name = a.columns[0]
               
-              # 3. Keep only messages from Master that are NOT in the new slice
-              h_filtered = h[~h[id_col].isin(new_ids)]
+              # 3. Get unique IDs from the new slice
+              new_ids = a[slice_id_name].unique()
               
-              # 4. Combine
+              # 4. Filter: Keep rows in Master where the ID is NOT in the new slice
+              # We use .isin() on the specific column name we found
+              h_filtered = h[~h[master_id_name].isin(new_ids)]
+              
+              # 5. Combine (ignore_index=True re-indexes everything 0, 1, 2...)
               final = pd.concat([h_filtered, a], ignore_index=True)
               
-              # 5. Robust Sort (Convert to datetime only for sorting, then back to string)
-              if 'Timestamp' in final.columns:
-                  final['Timestamp'] = pd.to_datetime(final['Timestamp'])
-                  final = final.sort_values(by='Timestamp', ascending=True)
+              # 6. Sort by Timestamp (handling different header names if needed)
+              # Discord typically uses 'Timestamp'
+              date_col = 'Timestamp'
+              if date_col in final.columns:
+                  final[date_col] = pd.to_datetime(final[date_col])
+                  final = final.sort_values(by=date_col, ascending=True)
               
               final.to_csv('test_output.csv', index=False)
               
               print(f'Done! Filtered Master: {len(h_filtered)} | Added: {len(a)} | Final Total: {len(final)}')
               
-              # Safety Check: If final is smaller than original master, something is wrong
-              if len(final) < len(h):
-                  print('WARNING: Final count is lower than starting count!')
           except Exception as e:
+              import traceback
               print(f'Merge Error: {e}')
+              traceback.print_exc()
               exit(1)
           "
