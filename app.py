@@ -12,10 +12,15 @@ def load_full_data(d_id):
     if not d_id: return None
     url = f'https://drive.google.com/uc?export=download&id={d_id}'
     output = "temp_data.csv"
-    gdown.download(url, output, quiet=True)
-    df = pd.read_csv(output, on_bad_lines='skip', engine='python', encoding='utf-8-sig')
-    if os.path.exists(output): os.remove(output)
-    return df
+    try:
+        gdown.download(url, output, quiet=True)
+        # Using python engine for better compatibility with messy CSVs
+        df = pd.read_csv(output, on_bad_lines='skip', engine='python', encoding='utf-8-sig')
+        if os.path.exists(output): os.remove(output)
+        return df
+    except Exception as e:
+        st.error(f"Error loading CSV: {e}")
+        return None
 
 # --- UI & INPUTS ---
 drive_id = st.secrets.get("DRIVE", "")
@@ -24,12 +29,12 @@ full_df = load_full_data(drive_id)
 if full_df is not None:
     with st.sidebar:
         st.header("🔍 Viewport Settings")
-        st.info("These lines control what you SEE, not where the bot starts.")
-        view_start = st.number_input("View Start Line", value=0)
-        view_end = st.number_input("View End Line", value=len(full_df))
+        st.info("These limits filter your VIEW, not the validation math.")
+        view_start = st.number_input("View Start (Row Index)", value=0, min_value=0)
+        view_end = st.number_input("View End (Row Index)", value=len(full_df), min_value=0)
         
         st.header("⚙️ Bot Logic")
-        anchor_num = st.number_input("Starting Bruh #", value=311925)
+        anchor_num = st.number_input("Starting Bruh # (Scan Anchor)", value=311925)
         jump_limit = st.number_input("Jump Limit", value=500)
         
         st.divider()
@@ -39,6 +44,8 @@ if full_df is not None:
     # --- THE ENGINE (Always runs on full_df) ---
     def validate_entire_file(df, start_num, limit):
         pattern = re.compile(r'^bruh\s+(\d+)', re.IGNORECASE)
+        
+        # Initialize lists to avoid empty DataFrames without columns
         all_mistakes = []
         all_successes = []
         
@@ -49,6 +56,9 @@ if full_df is not None:
 
         for i, row in df.iterrows():
             try:
+                # Basic validation that row has enough columns
+                if len(row) < 4: continue
+                
                 author = str(row.iloc[1])
                 raw_msg = str(row.iloc[3]).strip()
                 match = pattern.match(raw_msg)
@@ -56,7 +66,7 @@ if full_df is not None:
                 
                 found_num = int(match.group(1))
 
-                # Phase 1: Finding the Anchor anywhere in the file
+                # Phase 1: Search for the anchor anywhere in the file
                 if not is_active:
                     if found_num == start_num:
                         is_active = True
@@ -67,7 +77,8 @@ if full_df is not None:
                     continue
 
                 # Phase 2: Sequential Validation
-                if found_num == last_valid_num: continue
+                if found_num == last_valid_num: 
+                    continue
 
                 if found_num == current_target:
                     if author in recent_authors:
@@ -87,40 +98,50 @@ if full_df is not None:
                         recent_authors = [author]
                     else:
                         all_mistakes.append({"Line": i, "Author": author, "Msg": raw_msg, "Reason": "Troll/Invalid"})
-            except: continue
+            except:
+                continue
         
-        return pd.DataFrame(all_mistakes), pd.DataFrame(all_successes)
+        # Ensure we return DataFrames with consistent columns even if empty
+        cols_m = ["Line", "Author", "Msg", "Reason"]
+        cols_s = ["Line", "Author", "Msg", "Status"]
+        
+        res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
+        res_s = pd.DataFrame(all_successes) if all_successes else pd.DataFrame(columns=cols_s)
+        
+        return res_m, res_s
 
     # --- MAIN EXECUTION ---
     if run_check:
         df_m_all, df_v_all = validate_entire_file(full_df, anchor_num, jump_limit)
 
-        # Filter the results based on the User's Viewport
-        df_m_filtered = df_m_all[(df_m_all['Line'] >= view_start) & (df_m_all['Line'] <= view_end)]
-        df_v_filtered = df_v_all[(df_v_all['Line'] >= view_start) & (df_v_all['Line'] <= view_end)]
+        # Safety Check: Only filter if 'Line' exists (DataFrame is not empty)
+        df_m_filtered = df_m_all[(df_m_all['Line'] >= view_start) & (df_m_all['Line'] <= view_end)] if not df_m_all.empty else df_m_all
+        df_v_filtered = df_v_all[(df_v_all['Line'] >= view_start) & (df_v_all['Line'] <= view_end)] if not df_v_all.empty else df_v_all
 
         col1, col2 = st.columns([1, 1])
 
         with col1:
-            st.subheader(f"📄 Raw Data (Lines {view_start}-{view_end})")
+            st.subheader(f"📄 Raw Data View")
+            st.caption(f"Displaying Row {view_start} to {view_end}")
             st.dataframe(full_df.iloc[view_start:view_end], use_container_width=True, height=600)
 
         with col2:
-            st.subheader("📊 Validation Results (Filtered)")
-            st.write(f"Results shown only for lines **{view_start}** to **{view_end}**")
+            st.subheader("📊 Validation Results")
+            st.caption(f"Context: Full file scanned. Filters applied for view.")
             
-            t_err, t_ok = st.tabs(["❌ Mistakes Found", "✅ Valid Chain"])
+            t_err, t_ok = st.tabs(["❌ Mistakes Found", "✅ Success Log"])
             
             with t_err:
-                st.metric("Mistakes in view", len(df_m_filtered))
+                st.metric("Mistakes in View", len(df_m_filtered))
                 st.dataframe(df_m_filtered, use_container_width=True)
             
             with t_ok:
                 if show_v:
-                    st.metric("Valid bruhs in view", len(df_v_filtered))
+                    st.metric("Valid Bruhs in View", len(df_v_filtered))
                     st.dataframe(df_v_filtered, use_container_width=True)
                 else:
-                    st.info("Success log is hidden.")
+                    st.info("Success log is disabled in settings.")
 
 else:
-    st.warning("Please check your Drive ID and Secrets.")
+    st.info("Waiting for CSV data... Please ensure your Google Drive ID is in Streamlit Secrets.")
+
