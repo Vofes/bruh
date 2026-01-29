@@ -2,11 +2,16 @@ import streamlit as st
 import os
 import sys
 
-# Crucial for Streamlit Cloud to see the 'src' folder
+# Ensure the app can find the 'src' folder
 sys.path.append(os.getcwd())
 
-from src.bruh_processor import process_bruh_logic
-from src.raw_viewer import render_raw_csv_view
+try:
+    from src.bruh_processor import process_bruh_logic
+    from src.raw_viewer import render_raw_csv_view
+    from src.guide_loader import render_markdown_guide # New Import
+except ModuleNotFoundError:
+    st.error("🚨 Logic modules not found. Check your 'src' folder.")
+    st.stop()
 
 st.set_page_config(page_title="Bruh-BotCheck", layout="wide")
 
@@ -30,11 +35,15 @@ with st.sidebar:
     
     run = st.button("🚀 Run Analysis", use_container_width=True)
 
+# --- SHOW GUIDE WHEN NOT RUNNING ---
+if not run:
+    render_markdown_guide("botcheck_guide.md")
+
 if run:
-    # 1. BRAIN: Execute logic
+    # 1. BRAIN: Global Analysis
     res_m, res_s, found, last_val, unique_count = process_bruh_logic(df, start_bruh, end_bruh, jump_limit, hide_invalid)
     
-    # 2. METRICS: Display stats
+    # 2. METRICS
     st.header("📊 Global Analysis")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Final Chain Num", last_val if found else "N/A")
