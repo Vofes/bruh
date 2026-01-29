@@ -1,18 +1,18 @@
 import pandas as pd
 import streamlit as st
-import requests
 
-# The Direct Download Link
-DB_LINK = "https://www.dropbox.com/scl/fi/ine04ie48l60j6pj804px/chat_logs.csv?rlkey=3bhydbcigk7ndawwrdee7pv8f&st=igoinb9c&dl=1"
+DB_LINK = st.secrets["DROPBOXLINK"]
 
 @st.cache_data(ttl=3600)
 def load_chat_data():
-    """Fetches data from Dropbox instead of local disk."""
-    # We use pd.read_csv directly on the URL
-    df = pd.read_csv(DB_LINK, low_memory=False, on_bad_lines='skip')
-    
-    # Basic cleanup that your app likely expects
-    if 'Timestamp' in df.columns:
-        df['Timestamp'] = pd.to_datetime(df['Timestamp'])
-        
+    """Fetches headerless data from Dropbox and prepares it for the processor."""
+    # 1. Read with header=None to match the GitHub Action output
+    df = pd.read_csv(DB_LINK, header=None, dtype=str, low_memory=False, on_bad_lines='skip')
+
+    df.columns = ['MessageID', 'Author', 'Timestamp', 'Content'] + [f'extra_{i}' for i in range(len(df.columns)-4)]
+
+    df['Timestamp'] = pd.to_datetime(df['Timestamp'], utc=True, errors='coerce')
+    df = df.dropna(subset=['Timestamp'])
+
+    df['Content'] = df['Content'].fillna('').astype(str)
     return df
