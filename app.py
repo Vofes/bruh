@@ -62,7 +62,7 @@ st.title("Discord Chat Analytics")
 # 1. Render the Guide using your custom loader
 # Wrap it in an expander if you don't want it taking up the whole screen
 with st.expander("📖 View Bruh-App Guide"):
-    render_markdown_guide("guides/bruhapp-guide.md")
+    render_markdown_guide("bruhapp_guide.md")
 
 # 2. Load Data
 with st.spinner("Fetching latest messages from Dropbox..."):
