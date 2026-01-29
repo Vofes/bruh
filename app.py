@@ -9,28 +9,40 @@ st.set_page_config(page_title="Bruh Bot Check", page_icon="🤖", layout="wide")
 
 st.title("🤖 Bruh Chain Bot Check")
 
-# --- SIDEBAR SETTINGS ---
-st.sidebar.header("Configuration")
-
-# Fetch Token ID from Streamlit Secrets
+# --- SIDEBAR & CACHING ---
+st.sidebar.header("1. Data Source")
 drive_id = st.secrets.get("DRIVE", "")
 
-# Line Range Selection
-st.sidebar.subheader("Line Range")
-start_line = st.sidebar.number_input("Start Line Index", value=0, step=1)
-end_line = st.sidebar.number_input("End Line Index", value=500000, step=1)
+@st.cache_data(show_spinner="Downloading from Drive...")
+def download_csv(d_id):
+    if not d_id:
+        return None
+    url = f'https://drive.google.com/uc?export=download&id={d_id}'
+    output = "temp_logs.csv"
+    gdown.download(url, output, quiet=True)
+    
+    # Security/Permission Check
+    with open(output, 'r', encoding='utf-8', errors='ignore') as f:
+        if "<!DOCTYPE html>" in f.read(200):
+            if os.path.exists(output): os.remove(output)
+            return "AUTH_ERROR"
+            
+    df = pd.read_csv(output, on_bad_lines='skip', engine='python', encoding='utf-8-sig')
+    if os.path.exists(output): os.remove(output)
+    return df
 
-# Logic Settings
-start_num = st.sidebar.text_input("Starting Bruh Number", value="311925")
-jump_limit = st.sidebar.number_input("Troll Jump Limit", value=500)
+# Initialize Data
+raw_data = download_csv(drive_id)
 
-# View Toggles
-show_valid = st.sidebar.checkbox("Show Validated Bruhs (Success Log)", value=False)
-show_trolls = st.sidebar.checkbox("Show 'Invalid/Troll' in output", value=False)
+if raw_data is None:
+    st.error("❌ DRIVE ID missing in Secrets.")
+    st.stop()
+elif isinstance(raw_data, str) and raw_data == "AUTH_ERROR":
+    st.error("❌ Access Denied. Check Google Drive sharing permissions (Anyone with link).")
+    st.stop()
 
 # --- VALIDATION ENGINE ---
 def run_validation(df, start_num, limit, include_trolls):
-    # Synchronized Regex with your local script
     pattern = re.compile(r'^bruh\s+(\d+)', re.IGNORECASE)
     
     mistakes = []
@@ -41,38 +53,34 @@ def run_validation(df, start_num, limit, include_trolls):
     last_valid_num = None
     recent_authors = [] 
 
+    # We use .values for faster iteration
     for i, row in df.iterrows():
         try:
-            # Match index logic: df index + 2 usually matches Excel row numbers
-            line_id = i + 2 
+            line_id = i  # The index from the sliced dataframe
             author = str(row.iloc[1])
             raw_msg = str(row.iloc[3]).strip()
             
             match = pattern.match(raw_msg)
-            if not match:
-                continue
+            if not match: continue
                 
             found_num = int(match.group(1))
 
-            # PHASE 1: SEARCHING FOR START
             if not is_active:
                 if found_num == start_num:
                     is_active = True
                     current_target = found_num + 1
                     last_valid_num = found_num
                     recent_authors = [author]
-                    # Log the start
-                    valid_logs.append({"Line": line_id, "Author": author, "Message": raw_msg, "Status": "START ANCHOR"})
+                    valid_logs.append({"Line": line_id, "Author": author, "Message": raw_msg, "Status": "START", "Expected": start_num, "Found": found_num})
                 continue
 
-            # PHASE 2: VALIDATION
             if found_num == last_valid_num:
                 continue 
 
-            is_double_bruh = author in recent_authors
+            is_breaking_rule = author in recent_authors
 
             if found_num == current_target:
-                if is_double_bruh:
+                if is_breaking_rule:
                     mistakes.append({"Line": line_id, "Author": author, "Message": raw_msg, "Reason": "2-Person Rule", "Expected": current_target, "Found": found_num})
                 else:
                     valid_count += 1
@@ -89,73 +97,60 @@ def run_validation(df, start_num, limit, include_trolls):
                     current_target = found_num + 1
                     last_valid_num = found_num
                     recent_authors = [author] 
-                else:
-                    if include_trolls:
-                        mistakes.append({"Line": line_id, "Author": author, "Message": raw_msg, "Reason": "Invalid/Troll", "Expected": current_target, "Found": found_num})
-        except Exception:
+                elif include_trolls:
+                    mistakes.append({"Line": line_id, "Author": author, "Message": raw_msg, "Reason": "Invalid/Troll", "Expected": current_target, "Found": found_num})
+        except:
             continue
 
     return pd.DataFrame(mistakes), pd.DataFrame(valid_logs), valid_count
 
-# --- EXECUTION ---
-if st.button("🚀 Run Bot Check"):
-    if not drive_id:
-        st.error("❌ DRIVE token not found in Streamlit Secrets!")
-    else:
-        direct_url = f'https://drive.google.com/uc?export=download&id={drive_id}'
+# --- USER INTERFACE FORM ---
+with st.sidebar.form("config_form"):
+    st.header("2. Settings")
+    s_line = st.number_input("Start Line Index", value=0)
+    e_line = st.number_input("End Line Index", value=len(raw_data))
+    s_num = st.number_input("Starting Bruh #", value=311925)
+    j_lim = st.number_input("Jump Limit", value=500)
+    
+    st.divider()
+    show_v = st.checkbox("Show Success Log", value=False)
+    show_t = st.checkbox("Include Trolls", value=False)
+    
+    submit = st.form_submit_button("🚀 Run Analysis")
+
+# --- RESULTS DISPLAY ---
+if submit:
+    # Slice data based on form input
+    sliced_df = raw_data.iloc[int(s_line):int(e_line)]
+    
+    df_mistakes, df_valid, total_valid = run_validation(sliced_df, s_num, j_lim, show_t)
+    
+    col_raw, col_results = st.columns([1, 1])
+
+    with col_raw:
+        st.subheader("📄 Raw CSV Slice")
+        st.dataframe(sliced_df, use_container_width=True, height=600)
+
+    with col_results:
+        st.subheader("📊 Analysis")
+        m1, m2 = st.columns(2)
+        m1.metric("Valid Count", total_valid)
+        m2.metric("Mistakes", len(df_mistakes))
         
-        with st.spinner("Downloading logs..."):
-            try:
-                output = "temp_logs.csv"
-                gdown.download(direct_url, output, quiet=True)
-                
-                # Check for Google Drive HTML error
-                with open(output, 'r', encoding='utf-8', errors='ignore') as f:
-                    if "<!DOCTYPE html>" in f.read(200):
-                        st.error("❌ Access Denied. Check Drive sharing permissions.")
-                        os.remove(output)
-                        st.stop()
+        tab1, tab2 = st.tabs(["❌ Mistakes", "✅ Valid Log"])
+        
+        with tab1:
+            if not df_mistakes.empty:
+                st.dataframe(df_mistakes, use_container_width=True)
+                st.download_button("📥 Download Mistakes", df_mistakes.to_csv(index=False), "mistakes.csv")
+            else:
+                st.success("No mistakes found!")
 
-                # Load only the required slice
-                full_df = pd.read_csv(output, on_bad_lines='skip', engine='python', encoding='utf-8-sig')
-                sliced_df = full_df.iloc[int(start_line):int(end_line)]
-
-                # Layout: Side by Side
-                col_raw, col_results = st.columns([1, 1])
-
-                with col_raw:
-                    st.subheader("📄 Raw CSV Preview")
-                    st.caption(f"Showing lines {start_line} to {end_line}")
-                    st.dataframe(sliced_df, use_container_width=True)
-
-                df_mistakes, df_valid, total_valid = run_validation(
-                    sliced_df, 
-                    int(start_num), 
-                    int(jump_limit), 
-                    show_trolls
-                )
-                
-                with col_results:
-                    st.subheader("📊 Analysis Results")
-                    c1, c2 = st.columns(2)
-                    c1.metric("Valid Bruhs", total_valid)
-                    c2.metric("Mistakes", len(df_mistakes))
-                    
-                    if show_valid:
-                        st.write("✅ **Valid Messages Log**")
-                        st.dataframe(df_valid, use_container_width=True)
-                    
-                    if not df_mistakes.empty:
-                        st.write("❌ **Mistake Log**")
-                        st.dataframe(df_mistakes, use_container_width=True)
-                        
-                        csv_data = df_mistakes.to_csv(index=False).encode('utf-8')
-                        st.download_button("📥 Download Mistakes CSV", csv_data, "mistakes.csv", "text/csv")
-                    else:
-                        st.success("No mistakes found in this range!")
-                
-                if os.path.exists(output):
-                    os.remove(output)
-                    
-            except Exception as e:
-                st.error(f"Error during processing: {e}")
+        with tab2:
+            if show_v:
+                if not df_valid.empty:
+                    st.dataframe(df_valid, use_container_width=True)
+                else:
+                    st.info("No valid messages found in this range. Check your 'Starting Bruh #' or line range.")
+            else:
+                st.warning("Success log is hidden. Enable 'Show Success Log' in sidebar.")
