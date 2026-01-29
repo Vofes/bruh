@@ -1,64 +1,56 @@
 import streamlit as st
-import os
-from src.engine import run_botcheck_logic
+from src.bruh_processor import process_bruh_logic
+from src.raw_viewer import render_raw_csv_view
 
-st.set_page_config(page_title="Bruh-BotCheck Validator", page_icon="🤖", layout="wide")
-
-def load_guide(file_path):
-    if os.path.exists(file_path):
-        with open(file_path, "r", encoding="utf-8") as f: return f.read()
-    return "⚠️ Guide file not found."
+st.set_page_config(page_title="Bruh-BotCheck", layout="wide")
 
 if 'df' not in st.session_state:
-    st.error("⚠️ No data found. Please return to the Home page to sync."); st.stop()
+    st.error("⚠️ Please load data on the Home page first."); st.stop()
 
 df = st.session_state['df']
 
 with st.sidebar:
-    st.header("⚙️ BotCheck Config")
+    st.header("⚙️ Global BotCheck")
     start_bruh = st.number_input("Starting Bruh #", value=311925)
-    end_bruh = st.number_input("Ending Bruh # (0 for End)", value=0)
+    end_bruh = st.number_input("Ending Bruh # (0=End)", value=0)
     jump_limit = st.number_input("Max Jump Allowed", value=1500)
     hide_invalid = st.checkbox("Hide 'No Consensus' Bruhs", value=False)
+    
     st.divider()
-    st.subheader("Viewport Control")
-    show_raw = st.checkbox("Show Raw Data Log", value=False)
+    st.subheader("Raw Viewer Settings")
+    show_raw = st.checkbox("Enable Raw Viewer", value=False)
     v_start = st.number_input("View Start Row", value=400000)
     v_end = st.number_input("View End Row", value=500000)
-    run = st.button("🚀 Run Full BotCheck", use_container_width=True)
-
-if not run:
-    st.markdown(load_guide("guides/botcheck_guide.md"))
+    
+    run = st.button("🚀 Run Analysis", use_container_width=True)
 
 if run:
-    with st.spinner("🧠 Analyzing global sequence..."):
-        # The line below now matches the 5 return values from engine.py
-        res_m, res_s, found, last_val, unique_count = run_botcheck_logic(df, start_bruh, end_bruh, jump_limit, hide_invalid)
+    # 1. BRAIN: Global analysis of the sequence
+    res_m, res_s, found, last_val, unique_count = process_bruh_logic(df, start_bruh, end_bruh, jump_limit, hide_invalid)
     
-    st.header("📊 Global Metrics")
+    # 2. METRICS: Total stats for the whole range
+    st.header("📊 Global Analysis")
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Chain End", last_val if found else "N/A")
+    m1.metric("Final Chain Num", last_val if found else "N/A")
     m2.metric("Total Mistakes", len(res_m))
     m3.metric("Total Success Log", len(res_s))
     m4.metric("Unique Successful", unique_count)
 
     st.divider()
 
-    # Filtering for table display ONLY
-    m_view = res_m[(res_m['Line'] >= v_start) & (res_m['Line'] <= v_end)]
-    s_view = res_s[(res_s['Line'] >= v_start) & (res_s['Line'] <= v_end)]
-
+    # 3. VIEW: UI Layout
     if show_raw:
-        col_raw, col_res = st.columns([1, 1])
+        col_raw, col_res = st.columns([1, 1.2])
         with col_raw:
-            st.subheader(f"📄 Raw Log ({v_start}-{v_end})")
-            st.dataframe(df.iloc[v_start:v_end, [1, 3]], use_container_width=True, height=600)
-        res_container = col_res
+            # Calling the Viewer service
+            render_raw_csv_view(df, v_start, v_end)
+        container = col_res
     else:
-        res_container = st.container()
+        container = st.container()
 
-    with res_container:
-        st.subheader(f"🔎 Filtered View ({v_start}-{v_end})")
-        t1, t2 = st.tabs(["❌ Mistakes", "✅ Success Log"])
-        t1.dataframe(m_view, use_container_width=True)
-        t2.dataframe(s_view, use_container_width=True)
+    with container:
+        st.subheader("📝 Complete Analysis Logs")
+        t1, t2 = st.tabs(["❌ Mistakes List", "✅ Success Log"])
+        # Displaying the FULL global results (Independent of viewport)
+        t1.dataframe(res_m, use_container_width=True)
+        t2.dataframe(res_s, use_container_width=True)
