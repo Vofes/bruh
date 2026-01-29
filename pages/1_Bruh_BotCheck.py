@@ -3,6 +3,7 @@ import os
 import sys
 import pandas as pd
 
+# Add root to path
 sys.path.append(os.getcwd())
 from src.bruh_processor import process_bruh_logic
 from src.raw_viewer import render_raw_csv_view
@@ -10,7 +11,7 @@ from src.raw_viewer import render_raw_csv_view
 st.set_page_config(page_title="Bruh-BotCheck", layout="wide")
 
 if 'df' not in st.session_state:
-    st.error("⚠️ Load data on Home page."); st.stop()
+    st.error("⚠️ Data not loaded. Go to Home page."); st.stop()
 
 df = st.session_state['df']
 
@@ -26,14 +27,14 @@ with st.sidebar:
     run = st.button("🚀 Run Analysis", use_container_width=True)
 
 if run:
-    with st.spinner("Processing..."):
+    with st.spinner("Processing large dataset..."):
         df_winners, df_lost, df_mistakes, last_val = process_bruh_logic(df, start_num, end_num, jump_limit)
     
-    st.header("📊 Sequence Results")
+    st.header("📊 Results")
     c1, c2, c3 = st.columns(3)
     c1.metric("Unique Winners", len(df_winners))
-    c2.metric("Missing/Lost Bruhs", len(df_lost))
-    c3.metric("Final Valid Num", last_val)
+    c2.metric("Missing/Lost", len(df_lost))
+    c3.metric("End Number", last_val)
 
     st.divider()
 
@@ -44,16 +45,19 @@ if run:
     else: container = st.container()
 
     with container:
-        t1, t2, t3 = st.tabs(["✅ Winners (Unique)", "🔍 Lost (Non-Unique)", "❌ Mistakes Log"])
+        t1, t2, t3 = st.tabs(["✅ Winners", "🔍 Lost", "❌ Mistakes"])
         
+        # We convert to CSV then back to DF to "clean" any Arrow-breaking types if necessary, 
+        # but the .astype() in processor should fix it.
         with t1:
             st.dataframe(df_winners, use_container_width=True)
             
         with t2:
             if not df_lost.empty:
-                st.dataframe(df_lost, use_container_width=True)
+                # Display only relevant columns to save memory
+                st.dataframe(df_lost[["Line", "Author", "Num", "Msg"]], use_container_width=True)
             else:
-                st.success("No missing bruhs found in this range!")
+                st.info("No Lost Bruhs found.")
             
         with t3:
             st.dataframe(df_mistakes, use_container_width=True)
