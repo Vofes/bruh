@@ -4,12 +4,11 @@ from src.engine import run_botcheck_logic
 
 st.set_page_config(page_title="Bruh-BotCheck Validator", page_icon="🤖", layout="wide")
 
-# Helper function to read the markdown guide
 def load_guide(file_path):
     if os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
             return f.read()
-    return "⚠️ Guide file not found. Please check the 'guides' folder."
+    return "⚠️ Guide file not found."
 
 if 'df' not in st.session_state:
     st.error("⚠️ No data found. Please return to the Home page to sync.")
@@ -23,6 +22,9 @@ with st.sidebar:
     end_bruh = st.number_input("Ending Bruh # (0 for End)", value=0)
     jump_limit = st.number_input("Max Jump Allowed", value=1500)
     
+    # --- NEW CHECKBOX ---
+    hide_invalid = st.checkbox("Hide 'No Consensus' Bruhs", value=False, help="Hides messages that aren't a valid number or failed consensus check.")
+    
     st.divider()
     st.subheader("Viewport Control")
     show_raw = st.checkbox("Show Raw Data Log", value=False)
@@ -31,17 +33,14 @@ with st.sidebar:
     
     run = st.button("🚀 Run Full BotCheck", use_container_width=True)
 
-# --- DISPLAY THE EXTERNAL GUIDE ---
 if not run:
-    # FILE LOCATION: Update the string below if you rename your folder or file
     guide_path = "guides/botcheck_guide.md" 
-    
-    guide_content = load_guide(guide_path)
-    st.markdown(guide_content)
+    st.markdown(load_guide(guide_path))
 
 if run:
     with st.spinner("🧠 Scanning sequence..."):
-        res_m, res_s, found, last_val = run_botcheck_logic(df, start_bruh, end_bruh, jump_limit)
+        # Updated to include hide_invalid parameter
+        res_m, res_s, found, last_val = run_botcheck_logic(df, start_bruh, end_bruh, jump_limit, hide_invalid)
     
     if found:
         st.success(f"**Validated up to:** {last_val}")
@@ -62,10 +61,10 @@ if run:
 
     with res_container:
         st.subheader("📊 BotCheck Results")
-        t1, t2 = st.tabs(["❌ Mistakes", "✅ Valid"])
+        t1, t2 = st.tabs(["❌ Mistakes", "✅ Valid & Corrections"])
         with t1:
             st.metric("Mistakes in View", len(m_view))
             st.dataframe(m_view, use_container_width=True)
         with t2:
-            st.metric("Valid Bruhs in View", len(s_view))
+            st.metric("Successful Bruhs in View", len(s_view))
             st.dataframe(s_view, use_container_width=True)
