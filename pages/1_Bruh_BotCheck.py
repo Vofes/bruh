@@ -1,71 +1,63 @@
 import streamlit as st
 import os
 import sys
+import pandas as pd
+import re
 
 # Ensure the app can find the 'src' folder
 sys.path.append(os.getcwd())
 
-try:
-    from src.bruh_processor import process_bruh_logic
-    from src.raw_viewer import render_raw_csv_view
-    from src.guide_loader import render_markdown_guide # New Import
-except ModuleNotFoundError:
-    st.error("🚨 Logic modules not found. Check your 'src' folder.")
-    st.stop()
+from src.bruh_processor import process_bruh_logic
+from src.raw_viewer import render_raw_csv_view
 
-st.set_page_config(page_title="Bruh-BotCheck", layout="wide")
-
-if 'df' not in st.session_state:
-    st.error("⚠️ Please load data on the Home page first."); st.stop()
-
-df = st.session_state['df']
-
-with st.sidebar:
-    st.header("⚙️ Global BotCheck")
-    start_bruh = st.number_input("Starting Bruh #", value=311925)
-    end_bruh = st.number_input("Ending Bruh # (0=End)", value=0)
-    jump_limit = st.number_input("Max Jump Allowed", value=1500)
-    hide_invalid = st.checkbox("Hide 'No Consensus' Bruhs", value=False)
-    
-    st.divider()
-    st.subheader("Raw Viewer Settings")
-    show_raw = st.checkbox("Enable Raw Viewer", value=False)
-    v_start = st.number_input("View Start Row", value=400000)
-    v_end = st.number_input("View End Row", value=500000)
-    
-    run = st.button("🚀 Run Analysis", use_container_width=True)
-
-# --- SHOW GUIDE WHEN NOT RUNNING ---
-if not run:
-    render_markdown_guide("botcheck_guide.md")
-# ... [sidebar and run logic] ...
+# ... [Sidebar logic remains the same] ...
 
 if run:
+    # 1. BRAIN: Global Analysis
     res_m, res_s, found, last_val, unique_count = process_bruh_logic(df, start_bruh, end_bruh, jump_limit, hide_invalid)
     
-    # CALCULATE THE DISQUALIFIED BRUHS
-    # These are messages that were jumps but accepted by consensus
-    disqualified_jumps = res_m[res_m["Reason"].str.contains("Jump", na=False)]
+    # 2. EXTRACTION LOGIC: Find every bruh NOT in 'Unique'
+    # Category A: Those marked as CORRECT-FIX (Successes that got rolled back)
+    excluded_fixes = res_s[res_s["Status"] == "CORRECT-FIX"].copy()
+    excluded_fixes["Exclusion Reason"] = "Overwritten by Rollback"
 
+    # Category B: Those marked as Jumps in Mistakes (Jump starters)
+    excluded_jumps = res_m[res_m["Reason"].str.contains("Jump", na=False)].copy()
+    excluded_jumps["Exclusion Reason"] = "Jump Entry (No Credit)"
+
+    # Combine them into one "Lost Bruhs" list
+    lost_bruhs = pd.concat([excluded_fixes, excluded_jumps], ignore_index=True)
+    
+    # Extract just the number for easier reading
+    def extract_num(msg):
+        match = re.search(r'bruh\s+(\d+)', str(msg), re.IGNORECASE)
+        return int(match.group(1)) if match else 0
+    
+    if not lost_bruhs.empty:
+        lost_bruhs["Bruh #"] = lost_bruhs["Msg"].apply(extract_num)
+        lost_bruhs = lost_bruhs[["Line", "Author", "Bruh #", "Exclusion Reason"]].sort_values("Line")
+
+    # 3. UI DISPLAY
     st.header("📊 Global Analysis")
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Final Chain Num", last_val if found else "N/A")
-    m2.metric("Total Successes", unique_count)
-    m3.metric("Disqualified Jumps", len(disqualified_jumps))
-    m4.metric("Total Errors", len(res_m) - len(disqualified_jumps))
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Unique Successful", unique_count)
+    m2.metric("Total Excluded", len(lost_bruhs))
+    m3.metric("Final Chain Num", last_val if found else "N/A")
 
     st.divider()
 
-    t1, t2, t3, t4 = st.tabs(["✅ Unique Bruhs", "🚫 Disqualified Jumps", "🛠️ Rollback History", "❌ Other Errors"])
+    t1, t2, t3 = st.tabs(["✅ Unique (Credited)", "🔍 Excluded Bruh List", "❌ All Mistakes"])
     
     with t1:
         st.dataframe(res_s[res_s["Status"] == "CORRECT"], use_container_width=True)
+        
     with t2:
-        st.warning(f"These {len(disqualified_jumps)} bruhs were accepted as the new counter but the authors received NO CREDIT because they jumped.")
-        st.dataframe(disqualified_jumps, use_container_width=True)
+        st.subheader("Numbers that didn't make the Unique cut")
+        if not lost_bruhs.empty:
+            st.info("The list below contains every bruh number that was detected but denied credit either because it was part of a jump or was fixed later.")
+            st.dataframe(lost_bruhs, use_container_width=True)
+        else:
+            st.success("No excluded bruhs found! Every valid bruh got credit.")
+
     with t3:
-        st.dataframe(res_s[res_s["Status"] == "CORRECT-FIX"], use_container_width=True)
-    with t4:
-        # Show errors that AREN'T jumps (2-person rule, no consensus, etc.)
-        other_errors = res_m[~res_m["Reason"].str.contains("Jump", na=False)]
-        st.dataframe(other_errors, use_container_width=True)
+        st.dataframe(res_m, use_container_width=True)
