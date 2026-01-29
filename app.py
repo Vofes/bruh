@@ -3,13 +3,16 @@ import pandas as pd
 import requests
 from datetime import datetime, timezone
 
-# 1. Configuration - Now using the secret link
+# 1. Configuration
 DB_LINK = st.secrets["DROPBOXLINK"]
+# Replace with your actual GitHub raw link to the guide
+GUIDE_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/guides/bruhapp-guide.md"
 
 def get_last_sync_info():
-    """Checks the Dropbox file metadata to see when it was last updated."""
+    """Checks the Dropbox file metadata for a rough sync estimate."""
     try:
-        response = requests.head(DB_LINK, allow_redirects=True)
+        # Use a GET request to ensure we get fresh headers
+        response = requests.get(DB_LINK, stream=True)
         last_mod_str = response.headers.get('last-modified')
         if last_mod_str:
             last_mod = datetime.strptime(last_mod_str, '%a, %d %b %Y %H:%M:%S %Z')
@@ -25,47 +28,57 @@ def get_last_sync_info():
     return None, None, None
 
 @st.cache_data(ttl=3600) 
-@st.cache_data(ttl=3600) 
 def load_data():
-    """Downloads the CSV from Dropbox using headerless format."""
+    """Downloads CSV, cleans headers, and handles UTC timestamps."""
     df = pd.read_csv(DB_LINK, header=None, dtype=str, low_memory=False)
-    
-    # 1. Assign names
     df.columns = ['MessageID', 'Author', 'Timestamp', 'Content'] + [f'col_{i}' for i in range(4, len(df.columns))]
     
-    # 2. Convert to datetime, but use errors='coerce'
-    # This turns non-date text (like headers) into "NaT" (Not a Time)
+    # Coerce errors to handle any stray header rows
     df['Timestamp'] = pd.to_datetime(df['Timestamp'], utc=True, errors='coerce')
-    
-    # 3. Drop any rows where the Timestamp failed to convert
-    # This effectively deletes any stray header rows buried in your data
-    df = df.dropna(subset=['Timestamp'])
-    
-    # 4. Sort to ensure your charts look right
-    df = df.sort_values(by='Timestamp', ascending=True)
-    
+    df = df.dropna(subset=['Timestamp']).sort_values(by='Timestamp')
     return df
 
-
-# --- Sidebar Status ---
-st.sidebar.title("📡 Data Status")
+# --- Sidebar: Sync & Stats ---
+st.sidebar.title("📡 Live Status")
 hours, mins, last_sync_dt = get_last_sync_info()
 
 if hours is not None:
-    if hours == 0:
-        st.sidebar.success(f"✅ Synced {mins}m ago")
-    else:
-        st.sidebar.info(f"🕒 Synced {hours}h {mins}m ago")
+    status_text = f"{mins}m ago" if hours == 0 else f"{hours}h {mins}m ago"
+    st.sidebar.success(f"File Updated: {status_text}")
 else:
-    st.sidebar.warning("⚠️ Could not retrieve sync time")
+    st.sidebar.warning("⚠️ Sync metadata unavailable")
 
 # --- Main App Logic ---
 st.title("Discord Chat Analytics")
 
-with st.spinner("Downloading data from Dropbox..."):
+# 1. Display the Guide
+try:
+    guide_content = requests.get(GUIDE_URL).text
+    with st.expander("📖 View Bruh-App Guide"):
+        st.markdown(guide_content)
+except Exception:
+    st.error("Could not load guide from GitHub.")
+
+# 2. Load Data
+with st.spinner("Fetching latest bruhs..."):
     df = load_data()
 
-st.write(f"Loaded **{len(df):,}** messages successfully.")
+# 3. Data Insights (The requested fix)
+if not df.empty:
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.metric("Total Messages", f"{len(df):,}")
+    
+    with col2:
+        # Get the latest timestamp from the data itself
+        latest_msg_time = df['Timestamp'].max()
+        human_time = latest_msg_time.strftime("%A, %b %d, %Y at %I:%M %p UTC")
+        st.write("**Latest Message Received:**")
+        st.info(f"🕒 {human_time}")
+else:
+    st.error("Dataframe is empty. Check your source file.")
 
-# Display a preview
-st.dataframe(df.head(10))
+# 4. Preview (Optional)
+with st.expander("View Raw Data Preview"):
+    st.dataframe(df.tail(10)) # Tail shows newest messages
