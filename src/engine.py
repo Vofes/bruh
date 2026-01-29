@@ -1,16 +1,14 @@
 import pandas as pd
 import re
 
-def run_botcheck_logic(df, start_num, end_num=0):
+def run_botcheck_logic(df, start_num, end_num=0, max_jump=1500):
     pattern = re.compile(r'^bruh\s+(\d+)', re.IGNORECASE)
     cols_m = ["Line", "Author", "Msg", "Reason"]
     cols_s = ["Line", "Author", "Msg", "Status"]
 
     bruh_rows = []
-    # Using enumerate to ensure we have the correct row index
     for i, row in df.iterrows():
         try:
-            # We assume Column 3 is the Message
             msg = str(row.iloc[3]).strip()
             match = pattern.match(msg)
             if match:
@@ -38,10 +36,8 @@ def run_botcheck_logic(df, start_num, end_num=0):
 
         if not active_status:
             if found_num == start_num:
-                # Historical check
                 past_nums = set(r["num"] for r in bruh_rows[:idx])
                 required = set(range(start_num - 10, start_num))
-                
                 if required.issubset(past_nums):
                     active_status, last_valid_num, current_target = True, found_num, found_num + 1
                     recent_authors = [author]
@@ -59,11 +55,15 @@ def run_botcheck_logic(df, start_num, end_num=0):
             lookahead = bruh_rows[idx+1 : idx+4]
             is_consensus = len(lookahead) == 3 and all(lookahead[k]["num"] == found_num + k + 1 for k in range(3))
             
-            if is_consensus:
-                diff = found_num - last_valid_num
-                label = "Jump" if diff > 0 else "Correction"
-                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Confirmed {label} ({diff:+} from {last_valid_num})"})
+            # --- THE JUMP LIMIT LOGIC ---
+            diff = abs(found_num - last_valid_num)
+            
+            if is_consensus and diff <= max_jump:
+                label = "Jump" if (found_num - last_valid_num) > 0 else "Correction"
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Confirmed {label} ({found_num - last_valid_num:+} from {last_valid_num})"})
                 last_valid_num, current_target, recent_authors = found_num, found_num + 1, [author]
+            elif is_consensus and diff > max_jump:
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Illegal Jump (Diff {diff} > {max_jump})"})
             else:
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Invalid / No Consensus"})
 
