@@ -47,35 +47,38 @@ jobs:
           python3 -c "
           import pandas as pd
           try:
-              h = pd.read_csv('master_history.csv', low_memory=False)
-              a = pd.read_csv('recent_slice.csv', low_memory=False)
+              # 1. Force ID columns to be STRINGS immediately on load
+              # This prevents the '1.23E+17' corruption
+              h = pd.read_csv('master_history.csv', dtype=str, low_memory=False)
+              a = pd.read_csv('recent_slice.csv', dtype=str, low_memory=False)
               
               id_col = h.columns[0]
               
-              # Deduplicate: Remove IDs from 'h' that exist in 'a'
-              h_filtered = h[~h[id_col].astype(str).isin(a[id_col].astype(str))]
+              print(f'Original Master Rows: {len(h)}')
+              print(f'New Slice Rows: {len(a)}')
               
-              # Combine
-              final = pd.concat([h_filtered, a])
+              # 2. Identify IDs in the new slice
+              new_ids = a[id_col].unique()
               
-              # Sort by Timestamp
+              # 3. Keep only messages from Master that are NOT in the new slice
+              h_filtered = h[~h[id_col].isin(new_ids)]
+              
+              # 4. Combine
+              final = pd.concat([h_filtered, a], ignore_index=True)
+              
+              # 5. Robust Sort (Convert to datetime only for sorting, then back to string)
               if 'Timestamp' in final.columns:
                   final['Timestamp'] = pd.to_datetime(final['Timestamp'])
                   final = final.sort_values(by='Timestamp', ascending=True)
               
-              # Save to a temporary filename locally
               final.to_csv('test_output.csv', index=False)
-              print(f'Test Merge Success! Final row count: {len(final)}')
+              
+              print(f'Done! Filtered Master: {len(h_filtered)} | Added: {len(a)} | Final Total: {len(final)}')
+              
+              # Safety Check: If final is smaller than original master, something is wrong
+              if len(final) < len(h):
+                  print('WARNING: Final count is lower than starting count!')
           except Exception as e:
               print(f'Merge Error: {e}')
               exit(1)
           "
-
-      - name: Upload to TEST file
-        run: |
-          # We change the 'path' here so it creates a DIFFERENT file on Dropbox
-          curl -X POST https://content.dropboxapi.com/2/files/upload \
-            --header "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
-            --header "Dropbox-API-Arg: {\"path\": \"/bruh/bruh_log/test_updated_master.csv\",\"mode\": \"overwrite\"}" \
-            --header "Content-Type: application/octet-stream" \
-            --data-binary @test_output.csv
