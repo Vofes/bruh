@@ -67,6 +67,8 @@ with st.expander("📖 View Bruh-App Guide"):
 # 2. Load Data
 with st.spinner("Fetching latest messages from Dropbox..."):
     df = load_data()
+    st.session_state['df'] = df   
+
 
 # 3. Data Insights (The human-readable stats)
 if not df.empty:
