@@ -38,34 +38,34 @@ with st.sidebar:
 # --- SHOW GUIDE WHEN NOT RUNNING ---
 if not run:
     render_markdown_guide("botcheck_guide.md")
-
-# ... [Keep imports and sidebar as is] ...
+# ... [sidebar and run logic] ...
 
 if run:
     res_m, res_s, found, last_val, unique_count = process_bruh_logic(df, start_bruh, end_bruh, jump_limit, hide_invalid)
     
-    # METRICS
+    # CALCULATE THE DISQUALIFIED BRUHS
+    # These are messages that were jumps but accepted by consensus
+    disqualified_jumps = res_m[res_m["Reason"].str.contains("Jump", na=False)]
+
     st.header("📊 Global Analysis")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Final Chain Num", last_val if found else "N/A")
-    m2.metric("Total Mistakes", len(res_m))
-    m3.metric("Total Success Log", len(res_s))
-    m4.metric("Unique Successful", unique_count)
+    m2.metric("Total Successes", unique_count)
+    m3.metric("Disqualified Jumps", len(disqualified_jumps))
+    m4.metric("Total Errors", len(res_m) - len(disqualified_jumps))
 
     st.divider()
 
-    # --- THE DEBUG VIEW ---
-    st.subheader("📝 Complete Analysis Logs")
-    # Split the results for the user to investigate
-    df_unique = res_s[res_s["Status"] == "CORRECT"]
-    df_excluded = res_s[res_s["Status"] == "CORRECT-FIX"]
-
-    t1, t2, t3 = st.tabs(["❌ Mistakes List", "✅ Unique Bruhs (Credited)", "🔍 Excluded (CORRECT-FIX)"])
+    t1, t2, t3, t4 = st.tabs(["✅ Unique Bruhs", "🚫 Disqualified Jumps", "🛠️ Rollback History", "❌ Other Errors"])
     
     with t1:
-        st.dataframe(res_m, use_container_width=True)
+        st.dataframe(res_s[res_s["Status"] == "CORRECT"], use_container_width=True)
     with t2:
-        st.dataframe(df_unique, use_container_width=True)
+        st.warning(f"These {len(disqualified_jumps)} bruhs were accepted as the new counter but the authors received NO CREDIT because they jumped.")
+        st.dataframe(disqualified_jumps, use_container_width=True)
     with t3:
-        st.info("These bruhs were invalidated by a later Rollback/Correction. Check the 'Line' numbers to see which correction wiped them out.")
-        st.dataframe(df_excluded, use_container_width=True)
+        st.dataframe(res_s[res_s["Status"] == "CORRECT-FIX"], use_container_width=True)
+    with t4:
+        # Show errors that AREN'T jumps (2-person rule, no consensus, etc.)
+        other_errors = res_m[~res_m["Reason"].str.contains("Jump", na=False)]
+        st.dataframe(other_errors, use_container_width=True)
