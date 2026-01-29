@@ -1,7 +1,7 @@
 import pandas as pd
 import re
 
-def run_botcheck_logic(df, start_num, end_num=0, max_jump=1500):
+def run_botcheck_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=False):
     pattern = re.compile(r'^bruh\s+(\d+)', re.IGNORECASE)
     cols_m = ["Line", "Author", "Msg", "Reason"]
     cols_s = ["Line", "Author", "Msg", "Status"]
@@ -12,14 +12,8 @@ def run_botcheck_logic(df, start_num, end_num=0, max_jump=1500):
             msg = str(row.iloc[3]).strip()
             match = pattern.match(msg)
             if match:
-                bruh_rows.append({
-                    "index": i, 
-                    "author": str(row.iloc[1]), 
-                    "msg": msg, 
-                    "num": int(match.group(1))
-                })
-        except:
-            continue
+                bruh_rows.append({"index": i, "author": str(row.iloc[1]), "msg": msg, "num": int(match.group(1))})
+        except: continue
 
     all_mistakes, all_successes = [], []
     active_status, current_target, last_valid_num = False, None, None
@@ -27,12 +21,8 @@ def run_botcheck_logic(df, start_num, end_num=0, max_jump=1500):
 
     for idx, item in enumerate(bruh_rows):
         i, author, msg, found_num = item["index"], item["author"], item["msg"], item["num"]
-        
-        if end_num != 0 and found_num > end_num:
-            break
-            
-        if last_valid_num is not None and found_num == last_valid_num:
-            continue
+        if end_num != 0 and found_num > end_num: break
+        if last_valid_num is not None and found_num == last_valid_num: continue
 
         if not active_status:
             if found_num == start_num:
@@ -48,24 +38,31 @@ def run_botcheck_logic(df, start_num, end_num=0, max_jump=1500):
             if author in recent_authors:
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule"})
             else:
+                # Perfect sequence gets "VALID" status
                 all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "VALID"})
             last_valid_num, current_target = found_num, found_num + 1
             recent_authors = (recent_authors + [author])[-2:]
         else:
             lookahead = bruh_rows[idx+1 : idx+4]
             is_consensus = len(lookahead) == 3 and all(lookahead[k]["num"] == found_num + k + 1 for k in range(3))
+            diff = found_num - last_valid_num
             
-            # --- THE JUMP LIMIT LOGIC ---
-            diff = abs(found_num - last_valid_num)
-            
-            if is_consensus and diff <= max_jump:
-                label = "Jump" if (found_num - last_valid_num) > 0 else "Correction"
-                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Confirmed {label} ({found_num - last_valid_num:+} from {last_valid_num})"})
+            if is_consensus and abs(diff) <= max_jump:
+                label = "Jump" if diff > 0 else "Correction"
+                # If it's a correction, we put it in SUCCESS as a 'PIVOT'
+                # If it's a bad jump, we still log it as a mistake but update the counter
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Confirmed {label} ({diff:+} from {last_valid_num})"})
+                
+                # Only give "Success" credit for Corrections, not for illegal Jumps
+                if diff < 0:
+                    all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECTION"})
+                
                 last_valid_num, current_target, recent_authors = found_num, found_num + 1, [author]
-            elif is_consensus and diff > max_jump:
-                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Illegal Jump (Diff {diff} > {max_jump})"})
             else:
-                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Invalid / No Consensus"})
+                # Check if we should hide these based on user setting
+                if not hide_invalid:
+                    reason = f"Illegal Jump ({diff:+})" if is_consensus else "Invalid / No Consensus"
+                    all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": reason})
 
     res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
     res_s = pd.DataFrame(all_successes) if all_successes else pd.DataFrame(columns=cols_s)
