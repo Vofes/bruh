@@ -22,6 +22,12 @@ def run_botcheck_logic(df, start_num):
 
     for idx, item in enumerate(bruh_rows):
         i, author, msg, found_num = item["index"], item["author"], item["msg"], item["num"]
+
+        if end_num != 0 and found_num > end_num:
+            break
+        
+    return res_m, res_s, active_status, last_valid_num
+
         
         # Suppress duplicates
         if last_valid_num is not None and found_num == last_valid_num: continue
