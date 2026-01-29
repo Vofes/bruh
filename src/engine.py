@@ -6,10 +6,11 @@ def run_botcheck_logic(df, start_num, end_num=0):
     cols_m = ["Line", "Author", "Msg", "Reason"]
     cols_s = ["Line", "Author", "Msg", "Status"]
 
-    # Global Scan to find all 'bruh' messages
     bruh_rows = []
+    # Using enumerate to ensure we have the correct row index
     for i, row in df.iterrows():
         try:
+            # We assume Column 3 is the Message
             msg = str(row.iloc[3]).strip()
             match = pattern.match(msg)
             if match:
@@ -29,26 +30,24 @@ def run_botcheck_logic(df, start_num, end_num=0):
     for idx, item in enumerate(bruh_rows):
         i, author, msg, found_num = item["index"], item["author"], item["msg"], item["num"]
         
-        # Stop if we have reached the user-defined ending bruh
         if end_num != 0 and found_num > end_num:
             break
             
-        # Skip duplicate numbers
         if last_valid_num is not None and found_num == last_valid_num:
             continue
 
-        # Logic to find the Secure Anchor
         if not active_status:
             if found_num == start_num:
+                # Historical check
                 past_nums = set(r["num"] for r in bruh_rows[:idx])
                 required = set(range(start_num - 10, start_num))
+                
                 if required.issubset(past_nums):
                     active_status, last_valid_num, current_target = True, found_num, found_num + 1
                     recent_authors = [author]
                     all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "ANCHOR"})
             continue
 
-        # Logic for Valid Sequence
         if found_num == current_target:
             if author in recent_authors:
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule"})
@@ -57,7 +56,6 @@ def run_botcheck_logic(df, start_num, end_num=0):
             last_valid_num, current_target = found_num, found_num + 1
             recent_authors = (recent_authors + [author])[-2:]
         else:
-            # Consensus Pivot Check (Looking ahead 3 steps)
             lookahead = bruh_rows[idx+1 : idx+4]
             is_consensus = len(lookahead) == 3 and all(lookahead[k]["num"] == found_num + k + 1 for k in range(3))
             
