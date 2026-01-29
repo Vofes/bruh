@@ -1,0 +1,72 @@
+name: Discord Log Auto-Updater
+
+on:
+  schedule:
+    - cron: '0 */12 * * *' # Every 12 hours
+  workflow_dispatch:      # Manual trigger button
+
+jobs:
+  update_logs:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Tools
+        run: |
+          curl -L https://github.com/Tyrrrz/DiscordChatExporter/releases/latest/download/DiscordChatExporter.Cli.linux-x64.zip -o dce.zip
+          unzip dce.zip -d dce
+          chmod +x dce/DiscordChatExporter.Cli
+
+      - name: Get Fresh Dropbox Token
+        id: dropbox_auth
+        run: |
+          TOKEN=$(curl -s -X POST https://api.dropbox.com/oauth2/token \
+            -u "${{ secrets.DROPBOX_APP_KEY }}:${{ secrets.DROPBOX_APP_SECRET }}" \
+            -d grant_type=refresh_token \
+            -d refresh_token="${{ secrets.DROPBOX_REFRESH_TOKEN }}" | jq -r '.access_token')
+          echo "atoken=$TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Download & Merge Logs
+        run: |
+          # 1. Download existing file from Dropbox
+          # !!! REPLACE THE URL BELOW WITH YOUR LINK (ending in dl=1) !!!
+          curl -L "YOUR_DIRECT_LINK_HERE" -o history.csv
+          
+          # 2. Export last 7 days from Discord
+          ./dce/DiscordChatExporter.Cli export \
+            -t "${{ secrets.DISCORD_TOKEN }}" \
+            -c ${{ secrets.CHANNEL_ID }} \
+            -f Csv -o recent.csv \
+            --after $(date -d "7 days ago" +%Y-%m-%d)
+
+          # 3. Merge files using Python (The "Edit-Fixer" logic)
+          python3 -c "
+          import pandas as pd
+          try:
+              h = pd.read_csv('history.csv', low_memory=False)
+              a = pd.read_csv('recent.csv', low_memory=False)
+              
+              id_col = h.columns[0]
+              h[id_col] = h[id_col].astype(str)
+              a[id_col] = a[id_col].astype(str)
+
+              # This line removes old versions so the new edits in 'a' take over
+              h_filtered = h[~h[id_col].isin(a[id_col])]
+              
+              final = pd.concat([h_filtered, a]).sort_values(by=id_col)
+              final.to_csv('chat_logs.csv', index=False)
+              print('Merge successful')
+          except Exception as e:
+              print(f'Merge failed: {e}')
+              exit(1)
+          "
+
+      - name: Upload Updated File
+        run: |
+          curl -X POST https://content.dropboxapi.com/2/files/upload \
+            --header "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
+            --header "Dropbox-API-Arg: {\"path\": \"/chat_logs.csv\",\"mode\": \"overwrite\"}" \
+            --header "Content-Type: application/octet-stream" \
+            --data-binary @chat_logs.csv
