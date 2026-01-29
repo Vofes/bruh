@@ -25,7 +25,6 @@ drive_id = st.secrets.get("DRIVE", "")
 full_df = load_full_data(drive_id)
 
 if full_df is not None:
-    # Prepare Raw View: Only Author (1) and Message (3)
     display_df = full_df.copy()
     if len(display_df.columns) >= 4:
         viewable_df = display_df[[display_df.columns[1], display_df.columns[3]]]
@@ -45,10 +44,10 @@ if full_df is not None:
         show_v = st.checkbox("Show Success Log", value=True)
         run_check = st.button("🚀 Run Full Validation", width='stretch')
 
-    def validate_with_consensus(df, start_num, limit):
+    def validate_with_pivots(df, start_num, limit):
         pattern = re.compile(r'^bruh\s+(\d+)', re.IGNORECASE)
         
-        # Pre-filter all "bruh" messages to make "looking ahead" easier
+        # Pre-filter all "bruh" messages
         bruh_rows = []
         for i, row in df.iterrows():
             try:
@@ -56,10 +55,8 @@ if full_df is not None:
                 match = pattern.match(msg)
                 if match:
                     bruh_rows.append({
-                        "index": i,
-                        "author": str(row.iloc[1]),
-                        "msg": msg,
-                        "num": int(match.group(1))
+                        "index": i, "author": str(row.iloc[1]),
+                        "msg": msg, "num": int(match.group(1))
                     })
             except: continue
 
@@ -69,7 +66,6 @@ if full_df is not None:
         last_valid_num = None
         recent_authors = []
 
-        # Iterate through our filtered list of bruh messages
         for idx, item in enumerate(bruh_rows):
             i, author, msg, found_num = item["index"], item["author"], item["msg"], item["num"]
 
@@ -84,7 +80,7 @@ if full_df is not None:
 
             if found_num == last_valid_num: continue
 
-            # CASE 1: PERFECT MATCH
+            # --- CASE 1: PERFECT SEQUENCE ---
             if found_num == current_target:
                 if author in recent_authors:
                     all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule"})
@@ -95,34 +91,36 @@ if full_df is not None:
                 current_target += 1
                 recent_authors = (recent_authors + [author])[-2:]
 
-            # CASE 2: POTENTIAL SKIP
+            # --- CASE 2: DEVIATION (Positive or Negative Skip) ---
             else:
-                diff = found_num - current_target
-                
-                # Check for consensus (look at next 3 bruhs)
+                # Check for consensus on the NEW number
                 is_consensus = False
-                if 0 < diff <= limit:
-                    lookahead = bruh_rows[idx+1 : idx+4]
-                    if len(lookahead) == 3:
-                        # If the next 3 follow the NEW sequence: found_num+1, +2, +3
-                        if (lookahead[0]["num"] == found_num + 1 and 
-                            lookahead[1]["num"] == found_num + 2 and 
-                            lookahead[2]["num"] == found_num + 3):
-                            is_consensus = True
+                lookahead = bruh_rows[idx+1 : idx+4]
+                
+                if len(lookahead) == 3:
+                    if (lookahead[0]["num"] == found_num + 1 and 
+                        lookahead[1]["num"] == found_num + 2 and 
+                        lookahead[2]["num"] == found_num + 3):
+                        is_consensus = True
 
                 if is_consensus:
-                    all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Confirmed Skip (+{diff})"})
+                    direction = "Positive Skip" if found_num > current_target else "Correction (Negative Skip)"
+                    all_mistakes.append({
+                        "Line": i, "Author": author, "Msg": msg, 
+                        "Reason": f"Confirmed {direction} to {found_num}"
+                    })
+                    # Pivot the bot's brain to this new number
                     current_target = found_num + 1
                     last_valid_num = found_num
-                    recent_authors = [author] # Reset rules on confirmed skip
+                    recent_authors = [author]
                 else:
-                    # Not consensus or massive jump = Skip Attempt (Invalid)
-                    all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Invalid/Skip Attempt"})
+                    # No consensus = Just a mistake/troll
+                    all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Invalid/Out of Sync"})
 
         return pd.DataFrame(all_mistakes), pd.DataFrame(all_successes), active_status
 
     if run_check:
-        df_m_all, df_v_all, anchor_found = validate_with_consensus(full_df, anchor_num, jump_limit)
+        df_m_all, df_v_all, anchor_found = validate_with_pivots(full_df, anchor_num, jump_limit)
 
         df_m_view = df_m_all[(df_m_all['Line'] >= view_start) & (df_m_all['Line'] <= view_end)]
         df_v_view = df_v_all[(df_v_all['Line'] >= view_start) & (df_v_all['Line'] <= view_end)]
