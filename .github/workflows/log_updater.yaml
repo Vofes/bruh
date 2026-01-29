@@ -31,8 +31,8 @@ jobs:
       - name: Download & Merge Logs
         run: |
           # 1. Download existing file from Dropbox
-          # !!! REPLACE THE URL BELOW WITH YOUR LINK (ending in dl=1) !!!
-          curl -L "YOUR_DIRECT_LINK_HERE" -o history.csv
+          curl -L "https://www.dropbox.com/scl/fi/ine04ie48l60j6pj804px/chat_logs.csv?rlkey=3bhydbcigk7ndawwrdee7pv8f&st=igoinb9c&dl=1" -o history.csv
+
           
           # 2. Export last 7 days from Discord
           ./dce/DiscordChatExporter.Cli export \
