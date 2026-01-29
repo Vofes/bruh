@@ -3,8 +3,8 @@ import pandas as pd
 import requests
 from datetime import datetime, timezone
 
-# 1. Configuration - The Direct Download Link (dl=1)
-DB_LINK = "https://www.dropbox.com/scl/fi/ine04ie48l60j6pj804px/chat_logs.csv?rlkey=3bhydbcigk7ndawwrdee7pv8f&st=igoinb9c&dl=1"
+# 1. Configuration - Now using the secret link
+DB_LINK = st.secrets["DROPBOXLINK"]
 
 def get_last_sync_info():
     """Checks the Dropbox file metadata to see when it was last updated."""
@@ -12,11 +12,9 @@ def get_last_sync_info():
         response = requests.head(DB_LINK, allow_redirects=True)
         last_mod_str = response.headers.get('last-modified')
         if last_mod_str:
-            # Parse the Dropbox time format
             last_mod = datetime.strptime(last_mod_str, '%a, %d %b %Y %H:%M:%S %Z')
             last_mod = last_mod.replace(tzinfo=timezone.utc)
             
-            # Calculate time difference
             now = datetime.now(timezone.utc)
             diff = now - last_mod
             hours = int(diff.total_seconds() // 3600)
@@ -26,11 +24,18 @@ def get_last_sync_info():
         return None, None, None
     return None, None, None
 
-@st.cache_data(ttl=3600) # Cache the data for 1 hour to keep the app fast
+@st.cache_data(ttl=3600) 
 def load_data():
-    """Downloads the CSV from Dropbox."""
-    df = pd.read_csv(DB_LINK, low_memory=False)
-    # Perform any basic cleaning here (convert dates, etc.)
+    """Downloads the CSV from Dropbox using headerless format."""
+    # Updated to header=None and explicit column naming
+    df = pd.read_csv(DB_LINK, header=None, dtype=str, low_memory=False)
+    
+    # Assign names based on our sync logic: ID, Author, Timestamp, Content
+    df.columns = ['MessageID', 'Author', 'Timestamp', 'Content'] + [f'col_{i}' for i in range(4, len(df.columns))]
+    
+    # Clean up Timestamp to UTC
+    df['Timestamp'] = pd.to_datetime(df['Timestamp'], utc=True)
+    
     return df
 
 # --- Sidebar Status ---
@@ -55,5 +60,3 @@ st.write(f"Loaded **{len(df):,}** messages successfully.")
 
 # Display a preview
 st.dataframe(df.head(10))
-
-# ... Your charts and leaderboard code go here ...
