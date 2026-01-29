@@ -47,43 +47,36 @@ jobs:
           python3 -c "
           import pandas as pd
           try:
-              # 1. Load without assuming headers, treat all as strings
-              # If your file HAS a header row, 'header=0' is usually safer.
-              # If it has NO header, we use 'header=None'. 
-              # Let's try header=0 first since most exports have one.
-              h = pd.read_csv('master_history.csv', dtype=str, header=0, low_memory=False)
-              a = pd.read_csv('recent_slice.csv', dtype=str, header=0, low_memory=False)
+              # Load with no index column to prevent shifting
+              h = pd.read_csv('master_history.csv', dtype=str, low_memory=False)
+              a = pd.read_csv('recent_slice.csv', dtype=str, low_memory=False)
               
-              print(f'Original Master Rows: {len(h)}')
-              
-              # 2. Assign temporary names based on position to ensure alignment
-              # Column 0 = ID, Column 2 = Timestamp
-              h.columns = [f'col_{i}' for i in range(len(h.columns))]
-              a.columns = [f'col_{i}' for i in range(len(a.columns))]
+              print(f'Original Master: {len(h)} | New Slice: {len(a)}')
 
-              # 3. Combine
+              # Combine them
               combined = pd.concat([h, a], ignore_index=True)
+
+              # DEDUPLICATION STRATEGY:
+              # Instead of trusting one column, we look at the first 4 columns.
+              # If Column 0 (ID), Column 2 (Date), and Column 3 (Text) are all the same, 
+              # then it is a duplicate.
+              cols_to_check = combined.columns[:4].tolist()
               
-              # 4. Deduplicate using Column 0 (The Message ID)
-              # This prevents the '10k rows' issue because we know exactly where the ID is
-              final = combined.drop_duplicates(subset=['col_0'], keep='last')
-              
-              # 5. Sort by Column 2 (The Timestamp)
-              # Using errors='coerce' to skip any rows that might be corrupted
-              final['col_2'] = pd.to_datetime(final['col_2'], errors='coerce')
-              final = final.sort_values(by='col_2', ascending=True)
-              
-              # 6. Save back
+              final = combined.drop_duplicates(subset=cols_to_check, keep='last')
+
+              # Sort by the date column (Column 2)
+              date_col = combined.columns[2]
+              final[date_col] = pd.to_datetime(final[date_col], errors='coerce')
+              final = final.sort_values(by=date_col, ascending=True)
+
               final.to_csv('test_output.csv', index=False)
               
-              print(f'--- RESULTS ---')
-              print(f'Added from Discord: {len(a)}')
               print(f'Final Unique Total: {len(final)}')
               
               if len(final) < len(h):
-                  print('!!! WARNING: Count dropped. Check if col_0 is truly the unique ID.')
+                  print('CRITICAL: Data is still leaking. Checking column contents...')
+                  print('Row 1 Column 0:', h.iloc[0,0])
+                  print('Row 2 Column 0:', h.iloc[1,0])
           except Exception as e:
-              import traceback
-              traceback.print_exc()
-              exit(1)
+              print(f'Error: {e}')
           "
