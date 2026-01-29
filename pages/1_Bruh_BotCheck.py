@@ -1,8 +1,15 @@
 import streamlit as st
+import os
+# These lines MUST match the filenames in your src folder
 from src.bruh_processor import process_bruh_logic
 from src.raw_viewer import render_raw_csv_view
 
 st.set_page_config(page_title="Bruh-BotCheck", layout="wide")
+
+def load_guide(file_path):
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f: return f.read()
+    return "📖 Guide not found."
 
 if 'df' not in st.session_state:
     st.error("⚠️ Please load data on the Home page first."); st.stop()
@@ -24,11 +31,14 @@ with st.sidebar:
     
     run = st.button("🚀 Run Analysis", use_container_width=True)
 
+if not run:
+    st.markdown(load_guide("guides/botcheck_guide.md"))
+
 if run:
-    # 1. BRAIN: Global analysis of the sequence
+    # 1. BRAIN: Run Global Logic
     res_m, res_s, found, last_val, unique_count = process_bruh_logic(df, start_bruh, end_bruh, jump_limit, hide_invalid)
     
-    # 2. METRICS: Total stats for the whole range
+    # 2. METRICS: Global Stats
     st.header("📊 Global Analysis")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Final Chain Num", last_val if found else "N/A")
@@ -38,11 +48,10 @@ if run:
 
     st.divider()
 
-    # 3. VIEW: UI Layout
+    # 3. VIEW: Separation of Raw vs Results
     if show_raw:
         col_raw, col_res = st.columns([1, 1.2])
         with col_raw:
-            # Calling the Viewer service
             render_raw_csv_view(df, v_start, v_end)
         container = col_res
     else:
@@ -51,6 +60,6 @@ if run:
     with container:
         st.subheader("📝 Complete Analysis Logs")
         t1, t2 = st.tabs(["❌ Mistakes List", "✅ Success Log"])
-        # Displaying the FULL global results (Independent of viewport)
+        # Independent of Viewport - shows all results from the analysis
         t1.dataframe(res_m, use_container_width=True)
         t2.dataframe(res_s, use_container_width=True)
