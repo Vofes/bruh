@@ -1,73 +1,55 @@
-name: Discord Log Auto-Updater
+name: Discord Log Updater
 
 on:
-  workflow_dispatch:      
+  schedule:
+    - cron: '15 */12 * * *'  # Runs automatically every hour
+  repository_dispatch:
+    types: [manual_refresh]  # Listens to your Streamlit Refresh Request
+  workflow_dispatch:         # Allows manual triggering from GitHub UI
+    inputs:
+      manual_hours:
+        description: 'Hours to look back'
+        default: '24'
+        required: false
 
 jobs:
-  update_logs:
+  update-logs:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Setup Tools
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Determine Refresh Hours
+        id: vars
         run: |
-          curl -L https://github.com/Tyrrrz/DiscordChatExporter/releases/latest/download/DiscordChatExporter.Cli.linux-x64.zip -o dce.zip
-          unzip dce.zip -d dce && chmod +x dce/DiscordChatExporter.Cli
+          # Priority: 1. Streamlit Payload, 2. GitHub UI Input, 3. Default (24)
+          if [ "${{ github.event.client_payload.hours }}" != "" ]; then
+            echo "HOURS=${{ github.event.client_payload.hours }}" >> $GITHUB_OUTPUT
+            echo "Trigger Source: Streamlit Refresh Request"
+          elif [ "${{ github.event.inputs.manual_hours }}" != "" ]; then
+            echo "HOURS=${{ github.event.inputs.manual_hours }}" >> $GITHUB_OUTPUT
+            echo "Trigger Source: GitHub Manual UI"
+          else
+            echo "HOURS=24" >> $GITHUB_OUTPUT
+            echo "Trigger Source: Scheduled Hourly Sync"
+          fi
 
-      - name: Install Pandas
-        run: pip install pandas
-
-      - name: Get Dropbox Token
-        id: dropbox_auth
+      - name: Install Dependencies
         run: |
-          TOKEN=$(curl -s -X POST https://api.dropbox.com/oauth2/token \
-            -u "${{ secrets.DROPBOX_APP_KEY }}:${{ secrets.DROPBOX_APP_SECRET }}" \
-            -d grant_type=refresh_token \
-            -d refresh_token="${{ secrets.DROPBOX_REFRESH_TOKEN }}" | jq -r '.access_token')
-          echo "atoken=$TOKEN" >> $GITHUB_OUTPUT
+          python -m pip install --upgrade pip
+          pip install pandas requests discord.py dropbox  # Add any other libraries your script needs
 
-      - name: Download, Merge & Sort
+      - name: Run Discord Scraper
+        env:
+          # Ensure these match the Secret names in your GitHub Settings
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          DROPBOX_TOKEN: ${{ secrets.DROPBOX_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
         run: |
-          # 1. Download Master via Secret
-          curl -L "${{ secrets.DROPBOXLINK }}" -o master_history.csv
-          
-          # 2. Export EVERYTHING since the beginning to unify timezones
-          ./dce/DiscordChatExporter.Cli export \
-            -t "${{ secrets.DISCORD_TOKEN }}" \
-            -c ${{ secrets.CHANNEL_ID }} \
-            -f Csv -o recent_slice.csv \
-            --after 2020-06-01
-
-          # 3. Positional Merge Logic
-          python3 -c "
-          import pandas as pd
-          try:
-              # Treat as headerless to avoid column name mismatches
-              h = pd.read_csv('master_history.csv', dtype=str, header=None, low_memory=False)
-              a = pd.read_csv('recent_slice.csv', dtype=str, header=None, low_memory=False)
-              
-              print(f'Master: {len(h)} | New Export: {len(a)}')
-
-              # Combine and deduplicate based on Timestamp (2) and Content (3)
-              combined = pd.concat([h, a], ignore_index=True)
-              final = combined.drop_duplicates(subset=[2, 3], keep='last')
-
-              # Force UTC 0:00 for the entire file
-              final[2] = pd.to_datetime(final[2], errors='coerce', utc=True)
-              final = final.dropna(subset=[2]) 
-              final = final.sort_values(by=2, ascending=True)
-
-              final.to_csv('updated_master.csv', index=False, header=False)
-              print(f'Final Unified Count: {len(final)}')
-          except Exception as e:
-              print(f'Error: {e}')
-              exit(1)
-          "
-
-      - name: Upload to Dropbox
-        run: |
-          # Overwriting your OFFICIAL file in bruh/bruh_log/
-          curl -X POST https://content.dropboxapi.com/2/files/upload \
-            --header "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
-            --header "Dropbox-API-Arg: {\"path\": \"/bruh/bruh_log/bruh_log.csv\",\"mode\": \"overwrite\"}" \
-            --header "Content-Type: application/octet-stream" \
-            --data-binary @updated_master.csv
+          # We pass the dynamic HOURS to your script
+          python scripts/discord_to_dropbox.py --hours ${{ steps.vars.outputs.HOURS }}
