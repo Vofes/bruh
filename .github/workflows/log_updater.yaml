@@ -47,39 +47,51 @@ jobs:
             -d grant_type=refresh_token \
             -d refresh_token="${{ secrets.DROPBOX_REFRESH_TOKEN }}" | jq -r '.access_token')
           echo "atoken=$TOKEN" >> $GITHUB_OUTPUT
-
       - name: Download, Merge & Sort
         run: |
-          # 1. Download Master from your Secret link
+          # 1. Download Master (Existing history)
           curl -L "${{ secrets.DROPBOXLINK }}" -o master_history.csv
           
-          # 2. Export Recent using the calculated days
+          # 2. Export Recent (The new slice from Discord)
           ./dce/DiscordChatExporter.Cli export \
             -t "${{ secrets.DISCORD_TOKEN }}" \
             -c ${{ secrets.CHANNEL_ID }} \
             -f Csv -o recent_slice.csv \
             --after $(date -d "${{ steps.vars.outputs.days }} days ago" +%Y-%m-%d)
 
-          # 3. Python Merge Logic (Same as your stable version)
+          # 3. Corrected Positional Merge
           python3 -c "
           import pandas as pd
-          try:
-              h = pd.read_csv('master_history.csv', dtype=str, header=None, low_memory=False)
-              a = pd.read_csv('recent_slice.csv', dtype=str, header=None, low_memory=False)
-              combined = pd.concat([h, a], ignore_index=True)
-              final = combined.drop_duplicates(subset=[2, 3], keep='last')
-              final[2] = pd.to_datetime(final[2], errors='coerce')
-              final = final.dropna(subset=[2]).sort_values(by=2, ascending=True)
-              final.to_csv('updated_master.csv', index=False, header=False)
-          except Exception as e:
-              print(f'Error: {e}'); exit(1)
-          "
+          import os
 
-      - name: Upload to Dropbox
-        run: |
-          # This uploads back to the ORIGINAL path, overwriting the master file
-          curl -X POST https://content.dropboxapi.com/2/files/upload \
-            --header "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
-            --header "Dropbox-API-Arg: {\"path\": \"/bruh/bruh_log/chat_logs.csv\",\"mode\": \"overwrite\"}" \
-            --header "Content-Type: application/octet-stream" \
-            --data-binary @updated_master.csv
+          try:
+              # Load Master and New Slice
+              # Using header=None because your CSV is headerless
+              h = pd.read_csv('master_history.csv', dtype=str, header=None)
+              a = pd.read_csv('recent_slice.csv', dtype=str, header=None)
+              
+              print(f'Original Master: {len(h)} rows')
+              print(f'New Slice: {len(a)} rows')
+
+              # Combine them
+              combined = pd.concat([h, a], ignore_index=True)
+
+              # DEDUPLICATE: Use Time (Col 2) and Message (Col 3) as the unique key
+              # This prevents duplicates without needing a Message ID
+              final = combined.drop_duplicates(subset=[2, 3], keep='first')
+
+              # CLEANUP: Ensure Column 2 is datetime so sorting works
+              final[2] = pd.to_datetime(final[2], errors='coerce')
+              final = final.dropna(subset=[2]) # Remove any rows with corrupt timestamps
+              
+              # SORT: Put the newest messages at the bottom
+              final = final.sort_values(by=2, ascending=True)
+
+              # SAVE: Write back to CSV with NO header
+              final.to_csv('updated_master.csv', index=False, header=False)
+              print(f'Final Merged Count: {len(final)} rows')
+
+          except Exception as e:
+              print(f'CRITICAL ERROR during merge: {e}')
+              exit(1)
+          "
