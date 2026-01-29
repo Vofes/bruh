@@ -44,46 +44,38 @@ jobs:
             --after $(date -d "50 days ago" +%Y-%m-%d)
 
           # 3. Python Merge Logic
-
-            python3 -c "
+          python3 -c "
           import pandas as pd
           try:
-              # 1. Load as strings to prevent corruption
+              # 1. Load both files - ensuring IDs are treated as pure strings
               h = pd.read_csv('master_history.csv', dtype=str, low_memory=False)
               a = pd.read_csv('recent_slice.csv', dtype=str, low_memory=False)
               
               print(f'Original Master Rows: {len(h)}')
               print(f'New Slice Rows: {len(a)}')
               
-              # 2. Get the name of the first column in both files
-              # Even if one is 'ID' and one is 'Message Id'
-              master_id_name = h.columns[0]
-              slice_id_name = a.columns[0]
+              # 2. Combine them into one giant pile
+              combined = pd.concat([h, a], ignore_index=True)
               
-              # 3. Get unique IDs from the new slice
-              new_ids = a[slice_id_name].unique()
+              # 3. Use the first column (ID) to find and remove duplicates
+              # We keep 'last' so the newest data from 'a' overwrites any old data in 'h'
+              id_col = combined.columns[0]
+              final = combined.drop_duplicates(subset=[id_col], keep='last')
               
-              # 4. Filter: Keep rows in Master where the ID is NOT in the new slice
-              # We use .isin() on the specific column name we found
-              h_filtered = h[~h[master_id_name].isin(new_ids)]
-              
-              # 5. Combine (ignore_index=True re-indexes everything 0, 1, 2...)
-              final = pd.concat([h_filtered, a], ignore_index=True)
-              
-              # 6. Sort by Timestamp (handling different header names if needed)
-              # Discord typically uses 'Timestamp'
-              date_col = 'Timestamp'
-              if date_col in final.columns:
-                  final[date_col] = pd.to_datetime(final[date_col])
-                  final = final.sort_values(by=date_col, ascending=True)
+              # 4. Sort chronologically
+              if 'Timestamp' in final.columns:
+                  final['Timestamp'] = pd.to_datetime(final['Timestamp'])
+                  final = final.sort_values(by='Timestamp', ascending=True)
               
               final.to_csv('test_output.csv', index=False)
               
-              print(f'Done! Filtered Master: {len(h_filtered)} | Added: {len(a)} | Final Total: {len(final)}')
+              print(f'--- FINAL VERIFICATION ---')
+              print(f'Combined Rows (pre-drop): {len(combined)}')
+              print(f'Final Unique Rows: {len(final)}')
               
+              if len(final) < len(h):
+                  print('!!! WARNING: Final count still lower than original master !!!')
           except Exception as e:
-              import traceback
               print(f'Merge Error: {e}')
-              traceback.print_exc()
               exit(1)
           "
