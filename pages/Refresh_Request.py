@@ -1,52 +1,47 @@
 import streamlit as st
-import time
-from datetime import datetime, timedelta
-from src.refresh_logic import trigger_github_sync
+from datetime import datetime
+from src.refresh_logic import trigger_github_sync, get_file_age_minutes
 
-st.set_page_config(page_title="Refresh Request")
+st.set_page_config(page_title="Refresh Request", page_icon="🔄")
 
-# --- Initialize Session State for Cooldown ---
-if 'last_refresh_time' not in st.session_state:
-    st.session_state['last_refresh_time'] = None
+st.title("🔄 System Refresh")
 
-st.title("🔄 Refresh Request")
+# --- Anti-Spam Check ---
+minutes_since_last_sync = get_file_age_minutes()
+cooldown_period = 10  # 10 minutes spam protection
 
-mode = st.radio("Select Mode", ["Normal", "Authorised"], horizontal=True)
+st.sidebar.metric("Last Sync", f"{minutes_since_last_sync} min ago")
 
-# --- Logic for Normal Mode ---
-if mode == "Normal":
-    st.info("Normal mode allows updates for the last 0-100 hours.")
-    hours = st.slider("Hours to update", 0, 100, 24)
+# Selection Mode
+mode = st.selectbox("Authorization Level", ["Normal User", "Authorized Admin"])
+
+if mode == "Normal User":
+    st.info(f"Normal Mode: 0-100 hours. Cooldown: {cooldown_period} mins.")
+    hours = st.slider("Hours to scan back", 1, 100, 24)
     
-    # Check cooldown (10 minutes)
-    can_refresh = True
-    if st.session_state['last_refresh_time']:
-        elapsed = datetime.now() - st.session_state['last_refresh_time']
-        if elapsed < timedelta(minutes=10):
-            can_refresh = False
-            remaining = 10 - int(elapsed.total_seconds() // 60)
-            st.warning(f"⚠️ Please wait {remaining} minutes before refreshing again.")
-
-    if st.button("Run Normal Refresh", disabled=not can_refresh):
-        with st.spinner("Requesting sync..."):
+    # Check if we are in cooldown
+    if minutes_since_last_sync < cooldown_period:
+        st.warning(f"⚠️ System is on cooldown. Please wait {cooldown_period - minutes_since_last_sync} more minutes.")
+        st.button("Run Normal Refresh", disabled=True)
+    else:
+        if st.button("🚀 Run Normal Refresh"):
             if trigger_github_sync(hours):
-                st.session_state['last_refresh_time'] = datetime.now()
-                st.success(f"✅ Sync triggered for last {hours}h! Data will update in a few minutes.")
+                st.success("✅ Trigger sent! Dropbox will update in 1-2 minutes.")
+                st.balloons()
             else:
-                st.error("❌ Failed to trigger sync. Check GitHub Token.")
+                st.error("❌ GitHub API error. Check GITHUB_TOKEN in secrets.")
 
-# --- Logic for Authorised Mode ---
 else:
-    st.info("Authorised mode allows updates for the last 0-1000 hours.")
-    pwd = st.text_input("Enter Admin Password", type="password")
-    hours = st.slider("Hours to update", 0, 1000, 500)
+    # Authorized Admin Mode
+    st.info("Admin Mode: 0-1000 hours. Bypasses cooldown.")
+    admin_password = st.text_input("Admin Password", type="password")
+    hours = st.slider("Hours to scan back", 1, 1000, 500)
     
-    if st.button("Run Authorised Refresh"):
-        if pwd == st.secrets["REFRESH_PASSWORD"]:
-            with st.spinner("Requesting deep sync..."):
-                if trigger_github_sync(hours):
-                    st.success(f"🚀 Admin Sync triggered for {hours}h!")
-                else:
-                    st.error("❌ Sync failed.")
+    if st.button("⚡ Force Admin Refresh"):
+        if admin_password == st.secrets["REFRESH_PASSWORD"]:
+            if trigger_github_sync(hours):
+                st.success(f"🚀 Admin override successful! Syncing last {hours} hours.")
+            else:
+                st.error("❌ Trigger failed.")
         else:
-            st.error("🚫 Incorrect Password.")
+            st.error("🚫 Invalid Admin Password.")
