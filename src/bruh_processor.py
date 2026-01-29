@@ -57,8 +57,9 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
                     all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
                     all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Rollback ({diff:+})"})
                 else:
-                    # Positive Jump - No credit given to the jump itself
-                    all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Jump ({diff:+})"})
+                    # POSITIVE JUMP: This is where your 'missing' bruhs go.
+                    # We log it as a mistake, and it NEVER enters the success log.
+                    all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Jump ({diff:+}) - No Credit"})
                 
                 last_valid_num, current_target, recent_authors = found_num, found_num + 1, [author]
             elif not hide_invalid:
