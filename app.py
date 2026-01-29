@@ -25,18 +25,27 @@ def get_last_sync_info():
     return None, None, None
 
 @st.cache_data(ttl=3600) 
+@st.cache_data(ttl=3600) 
 def load_data():
     """Downloads the CSV from Dropbox using headerless format."""
-    # Updated to header=None and explicit column naming
     df = pd.read_csv(DB_LINK, header=None, dtype=str, low_memory=False)
     
-    # Assign names based on our sync logic: ID, Author, Timestamp, Content
+    # 1. Assign names
     df.columns = ['MessageID', 'Author', 'Timestamp', 'Content'] + [f'col_{i}' for i in range(4, len(df.columns))]
     
-    # Clean up Timestamp to UTC
-    df['Timestamp'] = pd.to_datetime(df['Timestamp'], utc=True)
+    # 2. Convert to datetime, but use errors='coerce'
+    # This turns non-date text (like headers) into "NaT" (Not a Time)
+    df['Timestamp'] = pd.to_datetime(df['Timestamp'], utc=True, errors='coerce')
+    
+    # 3. Drop any rows where the Timestamp failed to convert
+    # This effectively deletes any stray header rows buried in your data
+    df = df.dropna(subset=['Timestamp'])
+    
+    # 4. Sort to ensure your charts look right
+    df = df.sort_values(by='Timestamp', ascending=True)
     
     return df
+
 
 # --- Sidebar Status ---
 st.sidebar.title("📡 Data Status")
