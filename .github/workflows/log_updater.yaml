@@ -41,7 +41,7 @@ jobs:
             -t "${{ secrets.DISCORD_TOKEN }}" \
             -c ${{ secrets.CHANNEL_ID }} \
             -f Csv -o recent_slice.csv \
-            --after $(date -d "7 days ago" +%Y-%m-%d)
+            --after $(date -d "50 days ago" +%Y-%m-%d)
 
           # 3. Python Merge Logic
           python3 -c "
