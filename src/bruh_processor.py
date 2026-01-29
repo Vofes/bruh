@@ -27,7 +27,8 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
         if not active_status:
             if found_num == start_num:
                 past_nums = set(r["num"] for r in bruh_rows[:idx])
-                if set(range(start_num - 10, start_num)).issubset(past_nums):
+                required = set(range(start_num - 10, start_num))
+                if required.issubset(past_nums):
                     active_status, last_valid_num, current_target = True, found_num, found_num + 1
                     all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
                     recent_authors = [author]
