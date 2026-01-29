@@ -7,7 +7,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Added permissions block to allow pushing code
     permissions:
       contents: write
       
@@ -15,8 +14,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # This ensures the token used has the right scope
           token: ${{ secrets.GITHUB_TOKEN }}
+          # fetch-depth: 0 ensures we have the history needed to merge/rebase
+          fetch-depth: 0
 
       - name: Download DiscordChatExporter
         run: |
@@ -36,6 +36,15 @@ jobs:
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          
           git add chat_logs.json
-          # Only commit if there are changes to avoid errors
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Automated chat update" && git push)
+          
+          # Only proceed if there are changes
+          if ! git diff --quiet --staged; then
+            git commit -m "Automated chat update"
+            # This 'pull --rebase' fixes the "rejected" error you saw
+            git pull --rebase origin main
+            git push origin main
+          else
+            echo "No changes to commit."
+          fi
