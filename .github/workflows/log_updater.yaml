@@ -2,24 +2,23 @@ name: Discord Log Auto-Updater
 
 on:
   schedule:
-    - cron: '0 */12 * * *' # Every 12 hours
-  workflow_dispatch:      # Manual trigger button
+    - cron: '0 */12 * * *' # Runs every 12 hours
+  workflow_dispatch:      # Allows manual trigger
 
 jobs:
   update_logs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
       - name: Setup Tools
         run: |
           curl -L https://github.com/Tyrrrz/DiscordChatExporter/releases/latest/download/DiscordChatExporter.Cli.linux-x64.zip -o dce.zip
-          unzip dce.zip -d dce
-          chmod +x dce/DiscordChatExporter.Cli
+          unzip dce.zip -d dce && chmod +x dce/DiscordChatExporter.Cli
 
-      - name: Get Fresh Dropbox Token
+      - name: Install Pandas
+        run: pip install pandas
+
+      - name: Get Dropbox Token
         id: dropbox_auth
         run: |
           TOKEN=$(curl -s -X POST https://api.dropbox.com/oauth2/token \
@@ -29,50 +28,54 @@ jobs:
           echo "atoken=$TOKEN" >> $GITHUB_OUTPUT
 
 
-      # ... previous steps (Setup Tools, Get Fresh Dropbox Token) ...
+      
+      # ... (Steps for Setup, Dependencies, and Auth remain the same) ...
 
-      - name: Install Python Dependencies
-        run: pip install pandas
-
-      - name: Download & Merge Logs
+      - name: Download, Merge & Sort (TEST MODE)
         run: |
-          # 1. Download existing file
-          curl -L "https://www.dropbox.com/scl/fi/ine04ie48l60j6pj804px/chat_logs.csv?rlkey=3bhydbcigk7ndawwrdee7pv8f&st=igoinb9c&dl=1" -o history.csv
+          # 1. Download your GOOD master file as the base
+          curl -L "https://www.dropbox.com/scl/fi/na4cepregzwgwxen8ht9c/bruh_data.csv?rlkey=q9aclpo8z9ohwjhu3k3v469tg&st=4e15tolk&dl=1" -o master_history.csv
           
-          # 2. Export last 7 days
+          # 2. Export recent data (Change '7 days ago' here to change the window)
           ./dce/DiscordChatExporter.Cli export \
             -t "${{ secrets.DISCORD_TOKEN }}" \
             -c ${{ secrets.CHANNEL_ID }} \
-            -f Csv -o recent.csv \
+            -f Csv -o recent_slice.csv \
             --after $(date -d "7 days ago" +%Y-%m-%d)
 
-          # 3. Merge files (The Edit-Fixer)
+          # 3. Python Merge Logic
           python3 -c "
           import pandas as pd
           try:
-              # Read with low_memory to handle large files
-              h = pd.read_csv('history.csv', low_memory=False)
-              a = pd.read_csv('recent.csv', low_memory=False)
+              h = pd.read_csv('master_history.csv', low_memory=False)
+              a = pd.read_csv('recent_slice.csv', low_memory=False)
               
               id_col = h.columns[0]
-              h[id_col] = h[id_col].astype(str)
-              a[id_col] = a[id_col].astype(str)
-
-              # Filter out old versions of the last 7 days
-              h_filtered = h[~h[id_col].isin(a[id_col])]
               
-              final = pd.concat([h_filtered, a]).sort_values(by=id_col)
-              final.to_csv('chat_logs.csv', index=False)
-              print('Merge successful!')
+              # Deduplicate: Remove IDs from 'h' that exist in 'a'
+              h_filtered = h[~h[id_col].astype(str).isin(a[id_col].astype(str))]
+              
+              # Combine
+              final = pd.concat([h_filtered, a])
+              
+              # Sort by Timestamp
+              if 'Timestamp' in final.columns:
+                  final['Timestamp'] = pd.to_datetime(final['Timestamp'])
+                  final = final.sort_values(by='Timestamp', ascending=True)
+              
+              # Save to a temporary filename locally
+              final.to_csv('test_output.csv', index=False)
+              print(f'Test Merge Success! Final row count: {len(final)}')
           except Exception as e:
-              print(f'Merge failed: {e}')
+              print(f'Merge Error: {e}')
               exit(1)
           "
 
-      - name: Upload Updated File
+      - name: Upload to TEST file
         run: |
+          # We change the 'path' here so it creates a DIFFERENT file on Dropbox
           curl -X POST https://content.dropboxapi.com/2/files/upload \
             --header "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
-            --header "Dropbox-API-Arg: {\"path\": \"/chat_logs.csv\",\"mode\": \"overwrite\"}" \
+            --header "Dropbox-API-Arg: {\"path\": \"/bruh/bruh_log/test_updated_master.csv\",\"mode\": \"overwrite\"}" \
             --header "Content-Type: application/octet-stream" \
-            --data-binary @chat_logs.csv
+            --data-binary @test_output.csv
