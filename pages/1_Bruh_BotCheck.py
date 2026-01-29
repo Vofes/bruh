@@ -32,20 +32,19 @@ if not run:
 
 if run:
     with st.spinner("🧠 Analyzing global sequence..."):
-        # GLOBAL ANALYSIS
+        # The line below now matches the 5 return values from engine.py
         res_m, res_s, found, last_val, unique_count = run_botcheck_logic(df, start_bruh, end_bruh, jump_limit, hide_invalid)
     
-    # --- METRICS (GLOBAL / UNFILTERED) ---
     st.header("📊 Global Metrics")
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Current Chain End", last_val if found else "N/A")
+    m1.metric("Chain End", last_val if found else "N/A")
     m2.metric("Total Mistakes", len(res_m))
-    m3.metric("Total Success Log Entries", len(res_s))
-    m4.metric("Unique Successful Bruhs", unique_count, help="Excludes 'CORRECT-FIX' entries")
+    m3.metric("Total Success Log", len(res_s))
+    m4.metric("Unique Successful", unique_count)
 
     st.divider()
 
-    # --- VIEWPORT DISPLAY ---
+    # Filtering for table display ONLY
     m_view = res_m[(res_m['Line'] >= v_start) & (res_m['Line'] <= v_end)]
     s_view = res_s[(res_s['Line'] >= v_start) & (res_s['Line'] <= v_end)]
 
@@ -59,7 +58,7 @@ if run:
         res_container = st.container()
 
     with res_container:
-        st.subheader(f"🔎 Filtered Results ({v_start}-{v_end})")
+        st.subheader(f"🔎 Filtered View ({v_start}-{v_end})")
         t1, t2 = st.tabs(["❌ Mistakes", "✅ Success Log"])
         t1.dataframe(m_view, use_container_width=True)
         t2.dataframe(s_view, use_container_width=True)
