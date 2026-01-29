@@ -34,7 +34,7 @@ jobs:
       - name: Download, Merge & Sort (TEST MODE)
         run: |
           # 1. Download your GOOD master file as the base
-          curl -L "https://www.dropbox.com/scl/fi/na4cepregzwgwxen8ht9c/bruh_data.csv?rlkey=q9aclpo8z9ohwjhu3k3v469tg&st=4e15tolk&dl=1" -o master_history.csv
+          curl -L "https://www.dropbox.com/scl/fi/i4kw0bam95d3gfd1cuqq2/bruh_log.csv?rlkey=0gj0uncfia4f991hwsgxjifq6&st=3bjjctrg&dl=1" -o master_history.csv
           
           # 2. Export recent data (Change '7 days ago' here to change the window)
           ./dce/DiscordChatExporter.Cli export \
