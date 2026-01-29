@@ -17,7 +17,7 @@ df = st.session_state['df']
 with st.sidebar:
     st.header("⚙️ Config")
     start_num = st.number_input("Starting Bruh #", value=311925)
-    end_num = st.number_input("Ending Bruh # (0=End)", value=0)
+    end_num = st.number_input("Ending Bruh #", value=0)
     jump_limit = st.number_input("Max Jump", value=1500)
     st.divider()
     show_raw = st.checkbox("Show Raw Viewer")
@@ -26,9 +26,9 @@ with st.sidebar:
     run = st.button("🚀 Run Analysis", use_container_width=True)
 
 if run:
-    df_winners, df_lost, df_mistakes, last_val = process_bruh_logic(df, start_num, end_num, jump_limit)
+    with st.spinner("Processing..."):
+        df_winners, df_lost, df_mistakes, last_val = process_bruh_logic(df, start_num, end_num, jump_limit)
     
-    # METRICS
     st.header("📊 Sequence Results")
     c1, c2, c3 = st.columns(3)
     c1.metric("Unique Winners", len(df_winners))
@@ -44,15 +44,16 @@ if run:
     else: container = st.container()
 
     with container:
-        t1, t2, t3 = st.tabs(["✅ Winners (Unique)", "🔍 Lost (Not in Unique)", "❌ Mistakes Log"])
+        t1, t2, t3 = st.tabs(["✅ Winners (Unique)", "🔍 Lost (Non-Unique)", "❌ Mistakes Log"])
         
         with t1:
-            st.success("These are the numbers that form the perfect, final chain.")
             st.dataframe(df_winners, use_container_width=True)
             
         with t2:
-            st.warning("These numbers were attempted but NEVER successfully made it into the final chain.")
-            st.dataframe(df_lost, use_container_width=True)
+            if not df_lost.empty:
+                st.dataframe(df_lost, use_container_width=True)
+            else:
+                st.success("No missing bruhs found in this range!")
             
         with t3:
             st.dataframe(df_mistakes, use_container_width=True)
