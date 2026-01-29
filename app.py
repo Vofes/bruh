@@ -39,12 +39,12 @@ if full_df is not None:
         show_v = st.checkbox("Show Success Log", value=True)
         run_check = st.button("🚀 Run Full Validation", width='stretch')
 
-    def validate_final_logic(df, start_num, limit):
+    def validate_final(df, start_num, limit):
         pattern = re.compile(r'^bruh\s+(\d+)', re.IGNORECASE)
         cols_m = ["Line", "Author", "Msg", "Reason"]
         cols_s = ["Line", "Author", "Msg", "Status"]
 
-        # 1. Pre-filter all valid "bruh" mentions
+        # 1. Pre-filter all "bruh" mentions
         bruh_rows = []
         for i, row in df.iterrows():
             try:
@@ -65,42 +65,40 @@ if full_df is not None:
         for idx, item in enumerate(bruh_rows):
             i, author, msg, found_num = item["index"], item["author"], item["msg"], item["num"]
 
-            # --- LOGIC: DUPLICATE SUPPRESSOR ---
+            # DUPLICATE SUPPRESSOR: Ignore if same as last handled number
             if last_valid_num is not None and found_num == last_valid_num:
                 continue
 
-            # --- LOGIC: SECURE ANCHOR SEARCH ---
+            # HISTORICAL ANCHOR SEARCH
             if not active_status:
                 if found_num == start_num:
-                    # Check if previous 5 numbers exist in the correct order
-                    if idx >= 5:
-                        history = [bruh_rows[idx-k]["num"] for k in range(1, 6)]
-                        required = [start_num - k for k in range(1, 6)]
-                        
-                        if history == required:
-                            active_status = True
-                            current_target = found_num + 1
-                            last_valid_num = found_num
-                            recent_authors = [author]
-                            all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "ANCHOR"})
+                    # Look at all 'num' values in bruh_rows BEFORE this index
+                    past_nums = set(r["num"] for r in bruh_rows[:idx])
+                    # Check for 10 predecessors (start_num-1 down to start_num-10)
+                    required = set(range(start_num - 10, start_num))
+                    
+                    if required.issubset(past_nums):
+                        active_status = True
+                        current_target = found_num + 1
+                        last_valid_num = found_num
+                        recent_authors = [author]
+                        all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "ANCHOR"})
                     else:
-                        # Not enough history to verify this anchor
                         continue
                 continue
 
-            # --- CASE 1: PERFECT SEQUENCE ---
+            # VALIDATION LOGIC
             if found_num == current_target:
                 if author in recent_authors:
                     all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule"})
                 else:
                     all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "VALID"})
-                
                 last_valid_num = found_num
                 current_target += 1
                 recent_authors = (recent_authors + [author])[-2:]
 
-            # --- CASE 2: DEVIATION / PIVOT ---
             else:
+                # CONSENSUS / PIVOT CHECK
                 lookahead = bruh_rows[idx+1 : idx+4]
                 is_consensus = False
                 if len(lookahead) == 3:
@@ -118,7 +116,7 @@ if full_df is not None:
                     })
                     current_target = found_num + 1
                     last_valid_num = found_num
-                    recent_authors = [author] 
+                    recent_authors = [author] # RESET HISTORY ON PIVOT
                 else:
                     all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Invalid / No Consensus"})
 
@@ -127,9 +125,8 @@ if full_df is not None:
         return res_m, res_s, active_status
 
     if run_check:
-        df_m_all, df_v_all, anchor_found = validate_final_logic(full_df, anchor_num, jump_limit)
+        df_m_all, df_v_all, anchor_found = validate_final(full_df, anchor_num, jump_limit)
 
-        # Filtering with safety columns
         df_m_view = df_m_all[(df_m_all['Line'] >= view_start) & (df_m_all['Line'] <= view_end)] if not df_m_all.empty else df_m_all
         df_v_view = df_v_all[(df_v_all['Line'] >= view_start) & (df_v_all['Line'] <= view_end)] if not df_v_all.empty else df_v_all
 
@@ -148,7 +145,7 @@ if full_df is not None:
         with res_col:
             st.subheader("📊 Results in View")
             if not anchor_found:
-                st.error(f"❌ Secure Anchor #{anchor_num} not found. (Requires sequence {anchor_num-5} to {anchor_num-1} immediately preceding it).")
+                st.error(f"❌ Anchor #{anchor_num} rejected: Previous 10 bruhs not found in history.")
             
             t_err, t_ok = st.tabs(["❌ Mistakes", "✅ Success Log"])
             with t_err:
