@@ -30,14 +30,14 @@ jobs:
       - name: Download, Merge & Sort
         run: |
           # 1. Download Master (Ensure dl=1 at the end of your link)
-          curl -L "YOUR_DROPBOX_DIRECT_LINK_HERE" -o master_history.csv
+          curl -L "https://www.dropbox.com/scl/fi/i4kw0bam95d3gfd1cuqq2/bruh_log.csv?rlkey=0gj0uncfia4f991hwsgxjifq6&st=9vq83th0&dl=1" -o master_history.csv
           
           # 2. Export Recent (Change '7 days ago' to adjust window)
           ./dce/DiscordChatExporter.Cli export \
             -t "${{ secrets.DISCORD_TOKEN }}" \
             -c ${{ secrets.CHANNEL_ID }} \
             -f Csv -o recent_slice.csv \
-            --after $(date -d "7 days ago" +%Y-%m-%d)
+            --after $(date -d "50 days ago" +%Y-%m-%d)
 
           # 3. Clean Merge Logic
           python3 -c "
