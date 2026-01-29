@@ -1,22 +1,17 @@
 name: Discord Chat Sync
+
 on:
   schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+    - cron: '0 0 * * *' # Runs daily at midnight
+  workflow_dispatch:     # Allows you to run it manually for testing
 
 jobs:
-  build:
+  sync:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          # fetch-depth: 0 ensures we have the history needed to merge/rebase
-          fetch-depth: 0
 
       - name: Download DiscordChatExporter
         run: |
@@ -24,27 +19,26 @@ jobs:
           unzip dce.zip -d dce
           chmod +x dce/DiscordChatExporter.Cli
 
-      - name: Export Chat
+      - name: Export Chat to CSV
         run: |
           ./dce/DiscordChatExporter.Cli export \
             -t "${{ secrets.DISCORD_TOKEN }}" \
             -c ${{ secrets.CHANNEL_ID }} \
-            -f Json \
-            -o chat_logs.json
+            -f Csv \
+            -o chat_logs.csv \
+            --parallel 8
 
-      - name: Save file to GitHub
+      - name: Upload to Dropbox
         run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          
-          git add chat_logs.json
-          
-          # Only proceed if there are changes
-          if ! git diff --quiet --staged; then
-            git commit -m "Automated chat update"
-            # This 'pull --rebase' fixes the "rejected" error you saw
-            git pull --rebase origin main
-            git push origin main
-          else
-            echo "No changes to commit."
-          fi
+          # Note: If your token expires, we will need to use the Refresh Token method.
+          # For now, this uses the generated Access Token.
+          curl -X POST https://content.dropboxapi.com/2/files/upload \
+            --header "Authorization: Bearer ${{ secrets.DROPBOX_ACCESS_TOKEN }}" \
+            --header "Dropbox-API-Arg: {\"path\": \"/chat_logs.csv\",\"mode\": \"overwrite\",\"mute\": true}" \
+            --header "Content-Type: application/octet-stream" \
+            --data-binary @chat_logs.csv
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf dce dce.zip chat_logs.csv
