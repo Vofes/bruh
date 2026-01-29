@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 from datetime import datetime, timezone
 # Import your guide logic from the src folder
-from src.guides import display_guide 
+from src.guide_loader import display_guide 
 
 # 1. Configuration
 DB_LINK = st.secrets["DROPBOXLINK"]
