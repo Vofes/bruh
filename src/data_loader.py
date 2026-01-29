@@ -1,21 +1,18 @@
-import streamlit as st
 import pandas as pd
-import gdown
-import os
+import streamlit as st
+import requests
 
-@st.cache_data(show_spinner=False)
-def get_botcheck_data():
-    # Centralized Drive ID - Update here to change file
-    drive_id = st.secrets.get("DRIVE", "YOUR_ID_HERE")
-    url = f'https://drive.google.com/uc?export=download&id={drive_id}'
-    output = "temp_data.csv"
+# The Direct Download Link
+DB_LINK = "https://www.dropbox.com/scl/fi/ine04ie48l60j6pj804px/chat_logs.csv?rlkey=3bhydbcigk7ndawwrdee7pv8f&st=igoinb9c&dl=1"
+
+@st.cache_data(ttl=3600)
+def load_chat_data():
+    """Fetches data from Dropbox instead of local disk."""
+    # We use pd.read_csv directly on the URL
+    df = pd.read_csv(DB_LINK, low_memory=False, on_bad_lines='skip')
     
-    try:
-        gdown.download(url, output, quiet=True)
-        # Using utf-8-sig to handle special characters in names
-        df = pd.read_csv(output, on_bad_lines='skip', engine='python', encoding='utf-8-sig')
-        if os.path.exists(output): os.remove(output)
-        return df
-    except Exception as e:
-        st.error(f"Loader Error: {e}")
-        return None
+    # Basic cleanup that your app likely expects
+    if 'Timestamp' in df.columns:
+        df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+        
+    return df
