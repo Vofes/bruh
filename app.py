@@ -18,4 +18,4 @@ if 'df' not in st.session_state:
 
 if 'df' in st.session_state:
     st.success(f"File loaded with {len(st.session_state['df']):,} rows of history.")
-    st.info("👈 Open the sidebar and select **Bruh BotCheck** to begin validation.")
+    st.info("👈 Open the sidebar and select **1 Bruh BotCheck** to begin validation.")
