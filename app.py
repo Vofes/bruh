@@ -6,33 +6,29 @@ st.set_page_config(page_title="Bruh-BotCheck Hub", page_icon="🤖", layout="wid
 st.title("🤖 Bruh-BotCheck Hub")
 st.write("Welcome to the central command for Bruh sequence validation.")
 
+if 'df' not in st.session_state:
+    with st.status("🔗 Connecting to sequence database...", expanded=True) as status:
+        df = get_botcheck_data()
+        if df is not None:
+            st.session_state['df'] = df
+            status.update(label="✅ Database Sync Complete", state="complete", expanded=False)
+        else:
+            status.update(label="❌ Sync Failed", state="error")
 
 if 'df' in st.session_state:
     df = st.session_state['df']
-    st.success(f"File loaded with {len(df):,} rows of history.")
     
-    # --- NEW: STATS SECTION ---
     st.subheader("📊 CSV Status")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("Total Messages", f"{len(df):,}")
-    
-    with col2:
-        # Assuming the date is in the first column (index 0)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("Total Rows in File", f"{len(df):,}")
+    with c2:
         try:
-            last_date = df.iloc[-1, 0] 
-            st.metric("Latest Update", str(last_date))
+            # Assuming Date is Column 0 and Author is Column 1
+            last_time = df.iloc[-1, 0]
+            st.metric("Latest Update (CSV Date)", str(last_time))
         except:
-            st.metric("Latest Update", "Unknown")
-            
-    with col3:
-        # Check for the last user to post
-        try:
-            last_author = df.iloc[-1, 1]
-            st.write(f"**Last active user:** {last_author}")
-        except:
-            pass
+            st.metric("Latest Update", "N/A")
 
-    st.success(f"File loaded with {len(st.session_state['df']):,} rows of history.")
-    st.info("👈 Open the sidebar and select **Bruh BotCheck** to begin validation.")
+    st.success("Data is ready for analysis.")
+    st.info("👈 Open the sidebar and select **1 Bruh BotCheck** to begin.")
