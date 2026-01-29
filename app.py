@@ -14,6 +14,7 @@ def load_full_data(d_id):
     output = "temp_data.csv"
     try:
         gdown.download(url, output, quiet=True)
+        # Load the entire file immediately
         df = pd.read_csv(output, on_bad_lines='skip', engine='python', encoding='utf-8-sig')
         if os.path.exists(output): os.remove(output)
         return df
@@ -26,20 +27,22 @@ drive_id = st.secrets.get("DRIVE", "")
 full_df = load_full_data(drive_id)
 
 if full_df is not None:
-    # Clean raw view: Drop User ID (0) and Timestamp (2)
+    # Prepare Raw View: Only Author (1) and Message (3)
     display_df = full_df.copy()
     if len(display_df.columns) >= 4:
-        cols_to_keep = [display_df.columns[1], display_df.columns[3]]
-        viewable_df = display_df[cols_to_keep]
+        # Keep Author and Message columns for the viewer
+        viewable_df = display_df[[display_df.columns[1], display_df.columns[3]]]
     else:
         viewable_df = display_df
 
     with st.sidebar:
-        st.header("🔍 Viewport Settings")
-        view_start = st.number_input("View Start (Row)", value=0, min_value=0)
-        view_end = st.number_input("View End (Row)", value=len(full_df), min_value=0)
+        st.header("🔍 Viewport (UI Only)")
+        st.info("These lines do NOT affect the bot check. They only control what you see on screen.")
+        view_start = st.number_input("Display Start Row", value=0, min_value=0)
+        view_end = st.number_input("Display End Row", value=len(full_df), min_value=0)
         
-        st.header("⚙️ Bot Logic")
+        st.header("⚙️ Bot Logic (Global)")
+        st.info("The bot will scan the WHOLE file starting from this number.")
         anchor_num = st.number_input("Starting Bruh #", value=311925)
         jump_limit = st.number_input("Jump Limit", value=500)
         
@@ -47,7 +50,7 @@ if full_df is not None:
         show_v = st.checkbox("Show Success Log", value=True)
         run_check = st.button("🚀 Run Full Validation", width='stretch')
 
-    # --- THE ENGINE ---
+    # --- THE ENGINE (Always runs on the TOTAL dataframe) ---
     def validate_entire_file(df, start_num, limit):
         pattern = re.compile(r'^bruh\s+(\d+)', re.IGNORECASE)
         all_mistakes, all_successes = [], []
@@ -57,6 +60,7 @@ if full_df is not None:
         last_valid_num = None
         recent_authors = []
 
+        # We iterate over the FULL dataframe regardless of viewport
         for i, row in df.iterrows():
             try:
                 author = str(row.iloc[1])
@@ -66,6 +70,7 @@ if full_df is not None:
                 
                 found_num = int(match.group(1))
 
+                # Logic: Find the anchor anywhere in the file
                 if not active_status:
                     if found_num == start_num:
                         active_status = True
@@ -75,6 +80,7 @@ if full_df is not None:
                         all_successes.append({"Line": i, "Author": author, "Msg": raw_msg, "Status": "ANCHOR"})
                     continue
 
+                # Normal Validation Sequence
                 if found_num == last_valid_num: continue
 
                 if found_num == current_target:
@@ -98,6 +104,7 @@ if full_df is not None:
             except:
                 continue
         
+        # Return global results
         cols_m = ["Line", "Author", "Msg", "Reason"]
         cols_s = ["Line", "Author", "Msg", "Status"]
         res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
@@ -107,36 +114,41 @@ if full_df is not None:
 
     # --- MAIN EXECUTION ---
     if run_check:
+        # Step 1: Run Global Validation
         df_m_all, df_v_all, anchor_found = validate_entire_file(full_df, anchor_num, jump_limit)
 
-        # Filter Viewport based on the 'Line' index we saved
-        df_m_filtered = df_m_all[(df_m_all['Line'] >= view_start) & (df_m_all['Line'] <= view_end)] if not df_m_all.empty else df_m_all
-        df_v_filtered = df_v_all[(df_v_all['Line'] >= view_start) & (df_v_all['Line'] <= view_end)] if not df_v_all.empty else df_v_all
+        # Step 2: Filter results based ONLY on the User's Viewport lines
+        # This keeps the math global but the view local.
+        df_m_view = df_m_all[(df_m_all['Line'] >= view_start) & (df_m_all['Line'] <= view_end)]
+        df_v_view = df_v_all[(df_v_all['Line'] >= view_start) & (df_v_all['Line'] <= view_end)]
 
         col1, col2 = st.columns([1, 1])
 
         with col1:
             st.subheader("📄 Raw Data View")
+            # The viewport only slices the UI here
             st.dataframe(viewable_df.iloc[view_start:view_end], width='stretch', height=600)
 
         with col2:
-            st.subheader("📊 Validation Results")
+            st.subheader("📊 Results in View")
             
             if not anchor_found:
-                st.error(f"❌ Anchor Bruh #{anchor_num} was not found in the file. No validation could occur.")
+                st.error(f"❌ Anchor Bruh #{anchor_num} not found in the entire file.")
+            else:
+                st.success(f"✅ Global Scan Complete. Results below are filtered to lines {view_start}-{view_end}.")
             
             t_err, t_ok = st.tabs(["❌ Mistakes", "✅ Success Log"])
             
             with t_err:
-                st.metric("Mistakes in View", len(df_m_filtered))
-                st.dataframe(df_m_filtered, width='stretch')
+                st.metric("Mistakes in View", len(df_m_view))
+                st.dataframe(df_m_view, width='stretch')
             
             with t_ok:
                 if show_v:
-                    st.metric("Valid Bruhs in View", len(df_v_filtered))
-                    st.dataframe(df_v_filtered, width='stretch')
+                    st.metric("Valid Bruhs in View", len(df_v_view))
+                    st.dataframe(df_v_view, width='stretch')
                 else:
-                    st.info("Success log is hidden.")
+                    st.info("Success log hidden.")
 
 else:
-    st.info("Ensure your Google Drive ID is correctly entered in Secrets.")
+    st.info("Awaiting CSV data. Check your Streamlit Secrets.")
