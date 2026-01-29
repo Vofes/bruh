@@ -8,7 +8,7 @@ sys.path.append(os.getcwd())
 try:
     from src.bruh_processor import process_bruh_logic
     # Corrected filename to match what we built (rawviewer)
-    from src.rawviewer import render_raw_csv_view 
+    from src.raw_viewer import render_raw_csv_view 
     from src.guide_loader import render_markdown_guide
 except ModuleNotFoundError as e:
     st.error(f"🚨 Logic modules not found: {e}")
