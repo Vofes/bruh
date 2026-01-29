@@ -9,7 +9,7 @@ on:
     inputs:
       manual_hours:
         description: 'Hours to look back'
-        default: '24'
+        default: '5000'
         required: false
 
 jobs:
