@@ -44,10 +44,9 @@ if full_df is not None:
         show_v = st.checkbox("Show Success Log", value=True)
         run_check = st.button("🚀 Run Full Validation", width='stretch')
 
-    def validate_with_pivots(df, start_num, limit):
+    def validate_with_sliding_consensus(df, start_num, limit):
         pattern = re.compile(r'^bruh\s+(\d+)', re.IGNORECASE)
         
-        # Pre-filter all "bruh" messages
         bruh_rows = []
         for i, row in df.iterrows():
             try:
@@ -91,11 +90,11 @@ if full_df is not None:
                 current_target += 1
                 recent_authors = (recent_authors + [author])[-2:]
 
-            # --- CASE 2: DEVIATION (Positive or Negative Skip) ---
+            # --- CASE 2: DEVIATION CHECK ---
             else:
-                # Check for consensus on the NEW number
-                is_consensus = False
+                # Check for consensus on THIS specific number
                 lookahead = bruh_rows[idx+1 : idx+4]
+                is_consensus = False
                 
                 if len(lookahead) == 3:
                     if (lookahead[0]["num"] == found_num + 1 and 
@@ -104,23 +103,25 @@ if full_df is not None:
                         is_consensus = True
 
                 if is_consensus:
-                    direction = "Positive Skip" if found_num > current_target else "Correction (Negative Skip)"
+                    diff = found_num - (current_target - 1)
+                    label = "Jump" if diff > 0 else "Correction"
                     all_mistakes.append({
                         "Line": i, "Author": author, "Msg": msg, 
-                        "Reason": f"Confirmed {direction} to {found_num}"
+                        "Reason": f"Confirmed {label} ({diff:+} from {last_valid_num})"
                     })
-                    # Pivot the bot's brain to this new number
+                    # Reset sequence to this new confirmed point
                     current_target = found_num + 1
                     last_valid_num = found_num
                     recent_authors = [author]
                 else:
-                    # No consensus = Just a mistake/troll
-                    all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Invalid/Out of Sync"})
+                    # No consensus found for THIS number. 
+                    # It stays an error, and the target remains the same for the next row.
+                    all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Invalid / No Consensus"})
 
         return pd.DataFrame(all_mistakes), pd.DataFrame(all_successes), active_status
 
     if run_check:
-        df_m_all, df_v_all, anchor_found = validate_with_pivots(full_df, anchor_num, jump_limit)
+        df_m_all, df_v_all, anchor_found = validate_with_sliding_consensus(full_df, anchor_num, jump_limit)
 
         df_m_view = df_m_all[(df_m_all['Line'] >= view_start) & (df_m_all['Line'] <= view_end)]
         df_v_view = df_v_all[(df_v_all['Line'] >= view_start) & (df_v_all['Line'] <= view_end)]
