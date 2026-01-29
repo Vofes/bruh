@@ -7,6 +7,6 @@ jobs:
       - name: Exchange Code
         run: |
           curl https://api.dropbox.com/oauth2/token \
-            -d code=PASTE_YOUR_CODE_HERE \
+            -d code=SKpi34ZToHcAAAAAAAAAHBdbgtm0AsGsFecvDh-uS54 \
             -d grant_type=authorization_code \
             -u ${{ secrets.DROPBOX_APP_KEY }}:${{ secrets.DROPBOX_APP_SECRET }}
