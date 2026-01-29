@@ -1,0 +1,12 @@
+name: Get My Token
+on: workflow_dispatch
+jobs:
+  get_token:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Exchange Code
+        run: |
+          curl https://api.dropbox.com/oauth2/token \
+            -d code=PASTE_YOUR_CODE_HERE \
+            -d grant_type=authorization_code \
+            -u ${{ secrets.DROPBOX_APP_KEY }}:${{ secrets.DROPBOX_APP_SECRET }}
