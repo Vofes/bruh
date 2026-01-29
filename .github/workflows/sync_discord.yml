@@ -1,44 +1,71 @@
-name: Discord Chat Sync
+name: Discord File Sync (From Start)
 
 on:
-  schedule:
-    - cron: '0 0 * * *' # Runs daily at midnight
-  workflow_dispatch:     # Allows you to run it manually for testing
+  workflow_dispatch: # This allows you to trigger the big sync manually
 
 jobs:
-  sync:
+  initial_sync:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Download DiscordChatExporter
+      - name: Setup Tools
         run: |
           curl -L https://github.com/Tyrrrz/DiscordChatExporter/releases/latest/download/DiscordChatExporter.Cli.linux-x64.zip -o dce.zip
-          unzip dce.zip -d dce
-          chmod +x dce/DiscordChatExporter.Cli
+          unzip dce.zip -d dce && chmod +x dce/DiscordChatExporter.Cli
 
-      - name: Export Chat to CSV
+      - name: Install Python Dependencies
+        run: pip install pandas
+
+      - name: Get Fresh Dropbox Token
+        id: dropbox_auth
         run: |
+          TOKEN=$(curl -s -X POST https://api.dropbox.com/oauth2/token \
+            -u "${{ secrets.DROPBOX_APP_KEY }}:${{ secrets.DROPBOX_APP_SECRET }}" \
+            -d grant_type=refresh_token \
+            -d refresh_token="${{ secrets.DROPBOX_REFRESH_TOKEN }}" | jq -r '.access_token')
+          echo "atoken=$TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Deep Export and Merge
+        run: |
+          # 1. Download whatever is currently on Dropbox
+          curl -L "https://www.dropbox.com/scl/fi/ine04ie48l60j6pj804px/chat_logs.csv?rlkey=3bhydbcigk7ndawwrdee7pv8f&st=igoinb9c&dl=1" -o history.csv
+          
+          # 2. Export EVERY message from June 1st, 2020 to Now
           ./dce/DiscordChatExporter.Cli export \
             -t "${{ secrets.DISCORD_TOKEN }}" \
             -c ${{ secrets.CHANNEL_ID }} \
-            -f Csv \
-            -o chat_logs.csv \
-            --parallel 8
+            -f Csv -o full_export.csv \
+            --after 2020-06-01
+
+          # 3. Python Safe-Merge (Deduplication)
+          python3 -c "
+          import pandas as pd
+          try:
+              print('Loading files...')
+              h = pd.read_csv('history.csv', low_memory=False)
+              f = pd.read_csv('full_export.csv', low_memory=False)
+              
+              id_col = f.columns[0] # Usually 'Message Id'
+              
+              # Combine and drop duplicates (keeping the fresh export version)
+              combined = pd.concat([h, f])
+              final = combined.drop_duplicates(subset=[id_col], keep='last')
+              final = final.sort_values(by=id_col)
+              
+              final.to_csv('chat_logs_complete.csv', index=False)
+              print(f'Done! Original: {len(h)} rows. New Export: {len(f)} rows. Final Unique: {len(final)}.')
+          except Exception as e:
+              print(f'Error during merge: {e}')
+              exit(1)
+          "
 
       - name: Upload to Dropbox
         run: |
-          # Note: If your token expires, we will need to use the Refresh Token method.
-          # For now, this uses the generated Access Token.
           curl -X POST https://content.dropboxapi.com/2/files/upload \
-            --header "Authorization: Bearer ${{ secrets.DROPBOX_ACCESS_TOKEN }}" \
-            --header "Dropbox-API-Arg: {\"path\": \"/chat_logs.csv\",\"mode\": \"overwrite\",\"mute\": true}" \
+            --header "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
+            --header "Dropbox-API-Arg: {\"path\": \"/chat_logs.csv\",\"mode\": \"overwrite\"}" \
             --header "Content-Type: application/octet-stream" \
-            --data-binary @chat_logs.csv
-
-      - name: Cleanup
-        if: always()
-        run: |
-          rm -rf dce dce.zip chat_logs.csv
+            --data-binary @chat_logs_complete.csv
