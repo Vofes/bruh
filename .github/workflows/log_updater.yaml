@@ -52,4 +52,4 @@ jobs:
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
         run: |
           # We pass the dynamic HOURS to your script
-          python scripts/discord_to_dropbox.py --hours ${{ steps.vars.outputs.HOURS }}
+          python src/discord_to_dropbox.py --hours ${{ steps.vars.outputs.HOURS }}
