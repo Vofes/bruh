@@ -39,11 +39,12 @@ with st.sidebar:
 if not run:
     render_markdown_guide("botcheck_guide.md")
 
+# ... [Keep imports and sidebar as is] ...
+
 if run:
-    # 1. BRAIN: Global Analysis
     res_m, res_s, found, last_val, unique_count = process_bruh_logic(df, start_bruh, end_bruh, jump_limit, hide_invalid)
     
-    # 2. METRICS
+    # METRICS
     st.header("📊 Global Analysis")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Final Chain Num", last_val if found else "N/A")
@@ -53,17 +54,18 @@ if run:
 
     st.divider()
 
-    # 3. VIEW: UI Layout
-    if show_raw:
-        col_raw, col_res = st.columns([1, 1.2])
-        with col_raw:
-            render_raw_csv_view(df, v_start, v_end)
-        container = col_res
-    else:
-        container = st.container()
+    # --- THE DEBUG VIEW ---
+    st.subheader("📝 Complete Analysis Logs")
+    # Split the results for the user to investigate
+    df_unique = res_s[res_s["Status"] == "CORRECT"]
+    df_excluded = res_s[res_s["Status"] == "CORRECT-FIX"]
 
-    with container:
-        st.subheader("📝 Complete Analysis Logs")
-        t1, t2 = st.tabs(["❌ Mistakes List", "✅ Success Log"])
-        t1.dataframe(res_m, use_container_width=True)
-        t2.dataframe(res_s, use_container_width=True)
+    t1, t2, t3 = st.tabs(["❌ Mistakes List", "✅ Unique Bruhs (Credited)", "🔍 Excluded (CORRECT-FIX)"])
+    
+    with t1:
+        st.dataframe(res_m, use_container_width=True)
+    with t2:
+        st.dataframe(df_unique, use_container_width=True)
+    with t3:
+        st.info("These bruhs were invalidated by a later Rollback/Correction. Check the 'Line' numbers to see which correction wiped them out.")
+        st.dataframe(df_excluded, use_container_width=True)
