@@ -47,35 +47,43 @@ jobs:
           python3 -c "
           import pandas as pd
           try:
-              # 1. Load both files - ensuring IDs are treated as pure strings
-              h = pd.read_csv('master_history.csv', dtype=str, low_memory=False)
-              a = pd.read_csv('recent_slice.csv', dtype=str, low_memory=False)
+              # 1. Load without assuming headers, treat all as strings
+              # If your file HAS a header row, 'header=0' is usually safer.
+              # If it has NO header, we use 'header=None'. 
+              # Let's try header=0 first since most exports have one.
+              h = pd.read_csv('master_history.csv', dtype=str, header=0, low_memory=False)
+              a = pd.read_csv('recent_slice.csv', dtype=str, header=0, low_memory=False)
               
               print(f'Original Master Rows: {len(h)}')
-              print(f'New Slice Rows: {len(a)}')
               
-              # 2. Combine them into one giant pile
+              # 2. Assign temporary names based on position to ensure alignment
+              # Column 0 = ID, Column 2 = Timestamp
+              h.columns = [f'col_{i}' for i in range(len(h.columns))]
+              a.columns = [f'col_{i}' for i in range(len(a.columns))]
+
+              # 3. Combine
               combined = pd.concat([h, a], ignore_index=True)
               
-              # 3. Use the first column (ID) to find and remove duplicates
-              # We keep 'last' so the newest data from 'a' overwrites any old data in 'h'
-              id_col = combined.columns[0]
-              final = combined.drop_duplicates(subset=[id_col], keep='last')
+              # 4. Deduplicate using Column 0 (The Message ID)
+              # This prevents the '10k rows' issue because we know exactly where the ID is
+              final = combined.drop_duplicates(subset=['col_0'], keep='last')
               
-              # 4. Sort chronologically
-              if 'Timestamp' in final.columns:
-                  final['Timestamp'] = pd.to_datetime(final['Timestamp'])
-                  final = final.sort_values(by='Timestamp', ascending=True)
+              # 5. Sort by Column 2 (The Timestamp)
+              # Using errors='coerce' to skip any rows that might be corrupted
+              final['col_2'] = pd.to_datetime(final['col_2'], errors='coerce')
+              final = final.sort_values(by='col_2', ascending=True)
               
+              # 6. Save back
               final.to_csv('test_output.csv', index=False)
               
-              print(f'--- FINAL VERIFICATION ---')
-              print(f'Combined Rows (pre-drop): {len(combined)}')
-              print(f'Final Unique Rows: {len(final)}')
+              print(f'--- RESULTS ---')
+              print(f'Added from Discord: {len(a)}')
+              print(f'Final Unique Total: {len(final)}')
               
               if len(final) < len(h):
-                  print('!!! WARNING: Final count still lower than original master !!!')
+                  print('!!! WARNING: Count dropped. Check if col_0 is truly the unique ID.')
           except Exception as e:
-              print(f'Merge Error: {e}')
+              import traceback
+              traceback.print_exc()
               exit(1)
           "
