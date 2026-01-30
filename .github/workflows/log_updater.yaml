@@ -1,9 +1,12 @@
 name: Discord Log Auto-Updater
 
 on:
-  schedule:
-    - cron: '0 */12 * * *' 
-  workflow_dispatch:      
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: 'Number of days to go back'
+        required: true
+        default: '7'
 
 jobs:
   update_logs:
@@ -27,49 +30,67 @@ jobs:
             -d refresh_token="${{ secrets.DROPBOX_REFRESH_TOKEN }}" | jq -r '.access_token')
           echo "atoken=$TOKEN" >> $GITHUB_OUTPUT
 
-      - name: Download, Merge & Sort
+      - name: Download, Merge & Priority Sort
         run: |
-          # 1. Download Master (Ensure dl=1 at the end of your link)
-          curl -L "https://www.dropbox.com/scl/fi/i4kw0bam95d3gfd1cuqq2/bruh_log.csv?rlkey=0gj0uncfia4f991hwsgxjifq6&st=9vq83th0&dl=1" -o master_history.csv
+          # 1. Download current master from Dropbox
+          curl -L "${{ secrets.DROPBOXLINK }}" -o master_history.csv
+
+          # 2. Export from Discord based on user input
+          # Calculates the date based on the lookback_days input
+          LOOKBACK_DATE=$(date -d "${{ github.event.inputs.lookback_days }} days ago" +%Y-%m-%d)
+          echo "Exporting everything after $LOOKBACK_DATE"
           
-          # 2. Export Recent (Change '7 days ago' to adjust window)
           ./dce/DiscordChatExporter.Cli export \
             -t "${{ secrets.DISCORD_TOKEN }}" \
             -c ${{ secrets.CHANNEL_ID }} \
             -f Csv -o recent_slice.csv \
-            --after $(date -d "50 days ago" +%Y-%m-%d)
+            --after "$LOOKBACK_DATE"
 
-          # 3. Clean Merge Logic
+          # 3. Priority Merge Logic (Inspired by your ISO Merger)
           python3 -c "
           import pandas as pd
-          try:
-              # 1. Load both
-              h = pd.read_csv('master_history.csv', dtype=str, low_memory=False)
-              a = pd.read_csv('recent_slice.csv', dtype=str, low_memory=False)
+          import os
+
+          def priority_merge():
+              cols = ['userID', 'userName', 'timestamp', 'message']
               
-              # 2. Combine
-              combined = pd.concat([h, a], ignore_index=True)
-
-              # 3. DEDUPLICATION (The Fix)
-              # We use the Message ID column (index 0) to drop duplicates.
-              # Even if the column names are slightly different, this forces 
-              # it to keep only one instance of every Message ID.
-              id_col_name = combined.columns[0]
-              final = combined.drop_duplicates(subset=[id_col_name], keep='last')
+              # Load files
+              # Note: Using header=None because your Streamlit setup expects raw data
+              master = pd.read_csv('master_history.csv', names=cols, header=None, low_memory=False)
+              recent = pd.read_csv('recent_slice.csv', names=cols, header=0, low_memory=False)
               
-              # 4. Remove any accidental header rows that got merged in
-              # This removes any row where the ID column contains the word 'ID' or 'Author'
-              final = final[~final[id_col_name].str.contains('ID|Author|Message', case=False, na=False)]
+              # --- PRIORITY LOGIC ---
+              # To 'replace' old messages with new ones:
+              # 1. Remove rows from master that exist in recent (based on ID + Timestamp)
+              # 2. Append the entire 'recent' slice
+              
+              # Use userID and timestamp as the unique key to identify 'the same message'
+              key = ['userID', 'timestamp']
+              
+              # Identify overlaps
+              master_clean = master.merge(recent[key], on=key, how='left', indicator=True)
+              master_clean = master_clean[master_clean['_merge'] == 'left_only'].drop(columns=['_merge'])
+              
+              # Combine
+              final = pd.concat([master_clean, recent], ignore_index=True)
+              
+              # Sorting
+              final['dt'] = pd.to_datetime(final['timestamp'], errors='coerce', utc=True)
+              final = final.dropna(subset=['dt']).sort_values('dt').drop(columns=['dt'])
+              
+              # Add the empty 5th column you requested earlier
+              final['empty'] = ''
+              
+              final.to_csv('test_merge.csv', index=False, header=False)
+              print(f'Merge complete. Final count: {len(final)}')
 
-              # 5. Sort by Timestamp (index 2)
-              date_col = final.columns[2]
-              final[date_col] = pd.to_datetime(final[date_col], errors='coerce')
-              final = final.dropna(subset=[date_col]) # Remove rows that failed date conversion
-              final = final.sort_values(by=date_col, ascending=True)
-
-              final.to_csv('updated_master.csv', index=False)
-              print(f'Final Cleaned Count: {len(final)}')
-          except Exception as e:
-              print(f'Error: {e}')
-              exit(1)
+          priority_merge()
           "
+
+      - name: Upload to Dropbox (TEST)
+        run: |
+          curl -X POST https://content.dropboxapi.com/2/files/upload \
+            --header "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
+            --header "Dropbox-API-Arg: {\"path\": \"/bruh/bruh_log/test_merge.csv\",\"mode\": \"overwrite\"}" \
+            --header "Content-Type: application/octet-stream" \
+            --data-binary @test_merge.csv
