@@ -16,26 +16,35 @@ if 'current_file_time' not in st.session_state:
 
 # --- CORE FUNCTIONS ---
 
-def get_dropbox_metadata():
-    """Fetches the live 'Last-Modified' header from Dropbox."""
+def get_actual_dropbox_mtime():
+    """Uses the Dropbox API to get the REAL modified time of the file."""
     try:
-        # Cache-buster ensures we don't get a stale header
-        # We use head() for speed; if it fails, we return None
-        url = f"{DB_LINK}&t={int(time.time())}"
-        response = requests.head(url, timeout=7)
-        last_mod_str = response.headers.get('last-modified')
+        # 1. Get Access Token (Same logic as your refresh page)
+        auth_res = requests.post("https://api.dropbox.com/oauth2/token", data={
+            "grant_type": "refresh_token", 
+            "refresh_token": st.secrets["DROPBOX_REFRESH_TOKEN"],
+            "client_id": st.secrets["DROPBOX_APP_KEY"], 
+            "client_secret": st.secrets["DROPBOX_APP_SECRET"]
+        }).json()
+        token = auth_res.get("access_token")
+
+        # 2. Call Metadata API
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        # Ensure this path matches exactly where your GitHub Action saves the file
+        data = {"path": "/bruh/bruh_log/bruh_log.csv"} 
         
-        if last_mod_str:
-            dt = datetime.strptime(last_mod_str, '%a, %d %b %Y %H:%M:%S %Z')
-            return dt.replace(tzinfo=timezone.utc)
+        res = requests.post("https://api.dropboxapi.com/2/files/get_metadata", headers=headers, json=data).json()
+        
+        if 'server_modified' in res:
+            dt_str = res['server_modified'].replace('Z', '')
+            return datetime.fromisoformat(dt_str).replace(tzinfo=timezone.utc)
     except Exception:
         return None
     return None
 
-# RESTORED 60-MINUTE TTL (3600 seconds)
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(force_reload_trigger):
-    """Downloads CSV. Triggered to reload if version changes."""
+def load_data(version_trigger):
+    """Downloads CSV. Triggered to reload if version_trigger changes."""
     df = pd.read_csv(DB_LINK, header=None, dtype=str, low_memory=False)
     df.columns = ['MessageID', 'Author', 'Timestamp', 'Content'] + [f'col_{i}' for i in range(4, len(df.columns))]
     df['Timestamp'] = pd.to_datetime(df['Timestamp'], utc=True, errors='coerce')
@@ -51,25 +60,26 @@ with st.expander("📖 View Bruh-App Guide"):
 st.divider()
 
 # 2. THE SMART SYNC CHECK
-# Run the check at the start of every script run
-live_file_time = get_dropbox_metadata()
+# We check the API for the ACTUAL file timestamp
+live_file_time = get_actual_dropbox_mtime()
 
-# FALLBACK: If current_file_time is stuck, initialize it with whatever we can get
+# Initial Load
 if st.session_state['current_file_time'] is None:
     if live_file_time:
         st.session_state['current_file_time'] = live_file_time
     else:
-        # If Dropbox is down, use a placeholder so the UI doesn't hang
         st.session_state['current_file_time'] = datetime.now(timezone.utc)
+    st.session_state['last_update_check'] = datetime.now(timezone.utc).strftime("%H:%M:%S")
 
 # 3. LOAD DATA
-# We pass live_file_time into the cache function. 
-# If live_file_time changes, the cache "key" changes, forcing a new download.
-df = load_data(st.session_state['current_file_time'])
+# We use live_file_time as the cache key. If the file on Dropbox changes, 
+# the key changes, and st.cache_data automatically re-downloads.
+df = load_data(live_file_time)
 
-# 4. COMPARE: Is the live file newer than the one stored in session?
+# 4. COMPARE
 is_stale = False
 if live_file_time and st.session_state['current_file_time']:
+    # Check if Dropbox has a newer timestamp than what we currently have in session
     if live_file_time > st.session_state['current_file_time']:
         is_stale = True
 
@@ -78,17 +88,17 @@ m1, m2, m3 = st.columns([1, 1.2, 0.8])
 
 with m1:
     # #1 DATA FILE TIME
+    # This now shows the REAL modified date from Dropbox API
     file_time = st.session_state['current_file_time']
-    st.metric("Data File Time", file_time.strftime("%H:%M:%S UTC"))
-    st.caption("Modified time of loaded file")
+    st.metric("Data File Time", file_time.strftime("%H:%M UTC"))
+    st.caption("Actual file modified time")
 
 with m2:
     # #2 SYNC STATUS
     if is_stale:
-        st.warning("🔄 New File Detected")
+        st.warning("🔄 New Data Detected")
         if st.button("📥 Sync New Data Now", use_container_width=True):
             st.cache_data.clear()
-            # Update session state to the new time so the warning disappears after sync
             st.session_state['current_file_time'] = live_file_time
             st.rerun()
     else:
