@@ -2,25 +2,40 @@ import requests
 import streamlit as st
 from datetime import datetime, timezone
 
+def get_dropbox_access_token():
+    """Generates a temporary access token using the refresh token."""
+    url = "https://api.dropbox.com/oauth2/token"
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": st.secrets["DROPBOX_REFRESH_TOKEN"],
+        "client_id": st.secrets["DROPBOX_APP_KEY"],
+        "client_secret": st.secrets["DROPBOX_APP_SECRET"]
+    }
+    response = requests.post(url, data=data)
+    if response.status_code == 200:
+        return response.json()["access_token"]
+    return None
+
 def get_global_cooldown():
     """Checks Dropbox metadata to see when the log was last updated."""
-    token = st.secrets["DROPBOX_TOKEN"] # Ensure this is your access token
-    url = "https://api.dropboxapi.com/2/files/get_metadata"
+    # 1. Get a temporary token
+    access_token = get_dropbox_access_token()
+    if not access_token:
+        return True, 0 # Allow if auth fails to avoid locking the app
     
+    url = "https://api.dropboxapi.com/2/files/get_metadata"
     headers = {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    data = {
-        "path": "/bruh/bruh_log/bruh_log.csv",
-        "include_media_info": False
-    }
+    # Path must match exactly what is in your GitHub Action
+    data = {"path": "/bruh/bruh_log/bruh_log.csv"}
     
     try:
         response = requests.post(url, headers=headers, json=data)
         if response.status_code == 200:
             metadata = response.json()
-            # server_modified is in UTC ISO8601 format
+            # server_modified is UTC (e.g., 2023-10-27T10:00:00Z)
             last_mod_str = metadata['server_modified'].replace('Z', '')
             last_modified = datetime.fromisoformat(last_mod_str).replace(tzinfo=timezone.utc)
             
@@ -29,18 +44,7 @@ def get_global_cooldown():
             
             if minutes_passed < 15:
                 return False, 15 - minutes_passed
-            return True, 0
-    except Exception as e:
-        st.error(f"Cooldown Check Failed: {e}")
+    except Exception:
+        pass 
     
-    return True, 0 # Default to allowed if check fails
-
-def trigger_refresh(days):
-    # ... (Keep your existing trigger_refresh code here) ...
-    repo = st.secrets["GITHUB_REPO"]
-    token = st.secrets["GITHUB_TOKEN"]
-    url = f"https://api.github.com/repos/{repo}/dispatches"
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"}
-    payload = {"event_type": "manual_refresh_event", "client_payload": {"days": int(days)}}
-    response = requests.post(url, json=payload, headers=headers)
-    return response.status_code == 204
+    return True, 0
