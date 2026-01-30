@@ -1,38 +1,31 @@
 import requests
 import streamlit as st
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 
-def get_file_age_minutes():
-    """Checks Dropbox to see how many minutes ago the file was updated."""
-    try:
-        # Use the Dropbox link from secrets
-        db_link = st.secrets["DROPBOXLINK"]
-        response = requests.get(db_link, stream=True)
-        last_mod_str = response.headers.get('last-modified')
-        
-        if last_mod_str:
-            last_mod = datetime.strptime(last_mod_str, '%a, %d %b %Y %H:%M:%S %Z').replace(tzinfo=timezone.utc)
-            diff = datetime.now(timezone.utc) - last_mod
-            return int(diff.total_seconds() // 60)
-    except:
-        return 999  # If check fails, assume it's old enough
-    return 999
-
-def trigger_github_sync(update_hours):
-    """Triggers the GitHub Action via Repository Dispatch."""
-    token = st.secrets["GITHUB_TOKEN"]
+def trigger_refresh(days):
     repo = st.secrets["GITHUB_REPO"]
+    token = st.secrets["GITHUB_TOKEN"]
     
     url = f"https://api.github.com/repos/{repo}/dispatches"
     headers = {
-        "Authorization": f"token {token}",
+        "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github.v3+json"
     }
-    data = {
-        "event_type": "manual_refresh",
-        "client_payload": {"hours": update_hours}
+    payload = {
+        "event_type": "manual_refresh_event",
+        "client_payload": {"days": str(days)}
     }
     
-    response = requests.post(url, headers=headers, json=data)
-    # GitHub returns 204 No Content on success
+    response = requests.post(url, json=payload, headers=headers)
     return response.status_code == 204
+
+def get_cooldown_status():
+    if 'last_refresh' not in st.session_state:
+        return True, 0
+    
+    elapsed = datetime.now() - st.session_state['last_refresh']
+    remaining = 60 - (elapsed.total_seconds() // 60)
+    
+    if elapsed > timedelta(hours=1):
+        return True, 0
+    return False, int(remaining)
