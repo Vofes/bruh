@@ -1,29 +1,51 @@
 import streamlit as st
+import pandas as pd
+import requests
 import os
 import sys
+from datetime import datetime, timezone
 
 # Ensure the app can find the 'src' folder
 sys.path.append(os.getcwd())
 
 try:
     from src.bruh_processor import process_bruh_logic
-    # Corrected filename to match what we built (rawviewer)
     from src.raw_viewer import render_raw_csv_view 
     from src.guide_loader import render_markdown_guide
 except ModuleNotFoundError as e:
     st.error(f"🚨 Logic modules not found: {e}")
     st.stop()
 
+# --- CONFIGURATION ---
+DB_LINK = st.secrets["DROPBOXLINK"]
+
 st.set_page_config(page_title="Bruh-BotCheck", layout="wide")
 
-# Check if data exists in session state (passed from Home page)
+# --- DATA LOADER (Self-Healing) ---
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_data_independently():
+    """Downloads CSV from Dropbox if it's missing from session state."""
+    df = pd.read_csv(DB_LINK, header=None, dtype=str, low_memory=False)
+    # Map columns based on sync logic: ID, Author, Timestamp, Content
+    df.columns = ['MessageID', 'Author', 'Timestamp', 'Content'] + [f'col_{i}' for i in range(4, len(df.columns))]
+    df['Timestamp'] = pd.to_datetime(df['Timestamp'], utc=True, errors='coerce')
+    df = df.dropna(subset=['Timestamp']).sort_values(by='Timestamp', ascending=True)
+    return df
+
+# Check if data exists in session state; if not, fetch it.
 if 'df' not in st.session_state:
-    st.warning("📋 Data not found in memory.")
-    st.info("Please go to the **Home** page first to download the latest chat logs.")
-    st.stop()
+    with st.status("📡 Data not in memory. Establishing connection...", expanded=True) as status:
+        st.write("Downloading latest chat logs from Dropbox...")
+        try:
+            st.session_state['df'] = load_data_independently()
+            status.update(label="✅ Data Synchronized!", state="complete", expanded=False)
+        except Exception as e:
+            st.error(f"📋 Critical Error: Could not retrieve data. {e}")
+            st.stop()
 
 df = st.session_state['df']
 
+# --- SIDEBAR SETTINGS ---
 with st.sidebar:
     st.header("⚙️ Global BotCheck")
     # Defaulting to your specified starting point
@@ -41,15 +63,19 @@ with st.sidebar:
     
     run = st.button("🚀 Run Analysis", use_container_width=True)
 
+# --- MAIN INTERFACE ---
+st.title("🤖 Bot Detection Engine")
+
 # --- SHOW GUIDE WHEN NOT RUNNING ---
 if not run:
-    # Ensure botcheck_guide.md exists in your /guides folder!
     render_markdown_guide("botcheck_guide.md")
 
 if run:
     # 1. BRAIN: Global Analysis
     with st.spinner("Analyzing the bruh-chain..."):
-        res_m, res_s, found, last_val, unique_count = process_bruh_logic(df, start_bruh, end_bruh, jump_limit, hide_invalid)
+        res_m, res_s, found, last_val, unique_count = process_bruh_logic(
+            df, start_bruh, end_bruh, jump_limit, hide_invalid
+        )
     
     # 2. METRICS
     st.header("📊 Global Analysis")
