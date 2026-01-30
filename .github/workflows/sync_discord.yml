@@ -2,67 +2,67 @@
 
 #name: Discord Log Updater
 
-on:
-  workflow_dispatch: # Manual trigger from Streamlit or GH UI
-  schedule:
-    - cron: '0 */12 * * *' # Automatic run every 12 hours
+#on:
+  #workflow_dispatch: # Manual trigger from Streamlit or GH UI
+  #schedule:
+   # - cron: '0 */12 * * *' # Automatic run every 12 hours
 
-jobs:
-  update_logs:
-    runs-on: ubuntu-latest
+#jobs:
+ # update_logs:
+  #  runs-on: ubuntu-latest
     
-    steps:
-      - name: Setup Tools
-        run: |
-          curl -L https://github.com/Tyrrrz/DiscordChatExporter/releases/latest/download/DiscordChatExporter.Cli.linux-x64.zip -o dce.zip
-          unzip dce.zip -d dce && chmod +x dce/DiscordChatExporter.Cli
+   # steps:
+    #  - name: Setup Tools
+     #   run: |
+      #    curl -L https://github.com/Tyrrrz/DiscordChatExporter/releases/latest/download/DiscordChatExporter.Cli.linux-x64.zip -o dce.zip
+       #   unzip dce.zip -d dce && chmod +x dce/DiscordChatExporter.Cli
 
-      - name: Install Pandas
-        run: pip install pandas
+#      - name: Install Pandas
+ #       run: pip install pandas
 
-      - name: Get Dropbox Token
-        id: dropbox_auth
-        run: |
-          TOKEN=$(curl -s -X POST https://api.dropbox.com/oauth2/token \
-            -u "${{ secrets.DROPBOX_APP_KEY }}:${{ secrets.DROPBOX_APP_SECRET }}" \
-            -d grant_type=refresh_token \
-            -d refresh_token="${{ secrets.DROPBOX_REFRESH_TOKEN }}" | jq -r '.access_token')
-          echo "atoken=$TOKEN" >> $GITHUB_OUTPUT
+#      - name: Get Dropbox Token
+ #       id: dropbox_auth
+  #      run: |
+   #       TOKEN=$(curl -s -X POST https://api.dropbox.com/oauth2/token \
+    #        -u "${{ secrets.DROPBOX_APP_KEY }}:${{ secrets.DROPBOX_APP_SECRET }}" \
+     #       -d grant_type=refresh_token \
+      #      -d refresh_token="${{ secrets.DROPBOX_REFRESH_TOKEN }}" | jq -r '.access_token')
+       #   echo "atoken=$TOKEN" >> $GITHUB_OUTPUT
 
-      - name: Export and Format
-        run: |
-          # 1. Export everything since June 2020
-          ./dce/DiscordChatExporter.Cli export \
-            -t "${{ secrets.DISCORD_TOKEN }}" \
-            -c ${{ secrets.CHANNEL_ID }} \
-            -f Csv -o raw_export.csv \
-            --after 2020-06-01
+ #     - name: Export and Format
+  #      run: |
+   #       # 1. Export everything since June 2020
+    #      ./dce/DiscordChatExporter.Cli export \
+     #       -t "${{ secrets.DISCORD_TOKEN }}" \
+      #      -c ${{ secrets.CHANNEL_ID }} \
+       #     -f Csv -o raw_export.csv \
+        #    --after 2020-06-01
 
           # 2. Format to 5-column structure (ID, User, Time, Msg, Empty)
-          python3 -c "
-          import pandas as pd
-          try:
+#          python3 -c "
+ #         import pandas as pd
+  #        try:
               # Read raw export (skip headers if they exist to avoid text in data)
-              df = pd.read_csv('raw_export.csv')
+   #           df = pd.read_csv('raw_export.csv')
               
-              final = pd.DataFrame()
-              final[0] = df.iloc[:, 0]  # User ID
-              final[1] = df.iloc[:, 1]  # Username
-              final[2] = df.iloc[:, 2]  # Timestamp
-              final[3] = df.iloc[:, 3]  # Message
-              final[4] = ''             # Empty Column
+    #          final = pd.DataFrame()
+     #         final[0] = df.iloc[:, 0]  # User ID
+      #        final[1] = df.iloc[:, 1]  # Username
+       #       final[2] = df.iloc[:, 2]  # Timestamp
+        #      final[3] = df.iloc[:, 3]  # Message
+         #     final[4] = ''             # Empty Column
               
-              final.to_csv('final_upload.csv', index=False, header=False)
-          except Exception as e:
-              print(f'Error: {e}')
-              exit(1)
-          "
+          #    final.to_csv('final_upload.csv', index=False, header=False)
+#          except Exception as e:
+ #             print(f'Error: {e}')
+  #            exit(1)
+   #       "
 
-      - name: Upload to Dropbox
-        run: |
+    #  - name: Upload to Dropbox
+     #   run: |
           # Overwrites the file directly
-          curl -X POST https://content.dropboxapi.com/2/files/upload \
-            --header "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
+      #    curl -X POST https://content.dropboxapi.com/2/files/upload \
+       #     --header "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
             --header "Dropbox-API-Arg: {\"path\": \"/bruh/bruh_log/bruh_log.csv\",\"mode\": \"overwrite\"}" \
             --header "Content-Type: application/octet-stream" \
             --data-binary @final_upload.csv
