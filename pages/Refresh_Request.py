@@ -6,51 +6,58 @@ from datetime import datetime, timezone, timedelta
 st.set_page_config(page_title="Refresh Request", page_icon="🔄")
 
 # --- 1. LOCAL LOCK INITIALIZATION ---
-# This lock stays active for 10 minutes or until the browser tab is closed.
 if 'local_lock_until' not in st.session_state:
     st.session_state['local_lock_until'] = datetime.now(timezone.utc)
 
-# --- 2. DATA FETCH & AUTO-REFRESH ---
+# --- 2. DATA FETCH ---
 is_allowed, is_syncing, time_left, last_mod, debug_info = get_global_cooldown()
 
-# Calculate local lock time
+# Calculate local lock
 now = datetime.now(timezone.utc)
 local_seconds_left = int((st.session_state['local_lock_until'] - now).total_seconds())
 local_locked = local_seconds_left > 0
 
-# --- 3. UI LAYOUT: HEADER & REFRESH ---
 st.title("🔄 Data Refresh Hub")
 
-# Move Refresh Button Upwards as requested
-if st.button("🛰️ Update System Status", use_container_width=True):
-    st.rerun()
-
-# --- 4. TIER SELECTION ---
+# --- 3. TIER SELECTION & PASSWORD LOGIC ---
 tier = st.radio("Access Level:", ["Normal", "Authorized Personnel"], horizontal=True)
 
+# Default States
 max_days = 7
 guide_file = "NRefreshRequest_Guide.md"
 authorized = True
+is_mod = False
+use_text_input = False
 
 if tier == "Authorized Personnel":
-    pwd = st.text_input("Enter APASSWORD:", type="password")
-    if pwd == st.secrets.get("APASSWORD"):
-        st.success("Authorized: 30-Day Range Unlocked")
-        max_days = 30 # Corrected to 30
+    pwd = st.text_input("Enter Credentials:", type="password")
+    
+    # MODERATOR CHECK
+    if pwd == st.secrets.get("MOD_PASSWORD"):
+        st.success("👑 Moderator Access: Unrestricted Window")
+        is_mod = True
+        use_text_input = True
+        guide_file = "ARefreshRequest_Guide.md"
+    # AUTHORIZED PERSONNEL CHECK
+    elif pwd == st.secrets.get("APASSWORD"):
+        st.success("✅ Authorized: 30-Day Range")
+        max_days = 30
         guide_file = "ARefreshRequest_Guide.md"
     else:
         authorized = False
         if pwd: st.error("Incorrect Password")
+else:
+    authorized = True
 
-# --- 5. RENDER MARKDOWN (Restored) ---
+# --- 4. RENDER GUIDE ---
 try:
     render_markdown_guide(guide_file)
 except Exception as e:
-    st.caption(f"Guide Loader Note: {e}")
+    st.caption(f"Guide Loader: {e}")
 
 st.divider()
 
-# --- 6. STATUS METRICS ---
+# --- 5. STATUS METRICS ---
 c1, c2 = st.columns(2)
 with c1:
     if is_syncing:
@@ -68,11 +75,16 @@ with c2:
     else:
         st.metric("Last Update", "Offline")
 
-# --- 7. THE TRIGGER ---
+# --- 6. TRIGGER SECTION ---
 st.divider()
-days = st.select_slider("Select Lookback (Days):", range(1, max_days + 1), value=2)
 
-# Logic for Button Text and Disable State
+# Input Type based on Tier
+if use_text_input:
+    days = st.number_input("Enter Custom Lookback (Days):", min_value=1, max_value=9999, value=30)
+else:
+    days = st.select_slider("Select Lookback (Days):", range(1, max_days + 1), value=2)
+
+# Button Text & Disable State
 if is_syncing:
     btn_label, btn_dis = "⏳ Global Sync in Progress", True
 elif local_locked:
@@ -80,23 +92,29 @@ elif local_locked:
 elif not is_allowed:
     btn_label, btn_dis = f"🛑 Cooldown ({time_left}m)", True
 elif not authorized:
-    btn_label, btn_dis = "🔒 Authorized Personnel Only", True
+    btn_label, btn_dis = "🔒 Credentials Required", True
 else:
     btn_label, btn_dis = "🚀 Trigger Sync Now", False
 
+# The Trigger Button
 if st.button(btn_label, disabled=btn_dis, use_container_width=True):
-    # ACTIVATE LOCAL LOCK IMMEDIATELY
     st.session_state['local_lock_until'] = datetime.now(timezone.utc) + timedelta(minutes=10)
-    
     if trigger_refresh(days):
-        st.toast("Instruction received! GitHub Action starting...")
+        st.toast("Instruction received!")
         st.balloons()
         st.rerun()
     else:
-        # Reset lock if trigger fails
         st.session_state['local_lock_until'] = datetime.now(timezone.utc)
-        st.error("Failed to contact GitHub.")
+        st.error("GitHub Dispatch failed.")
 
-# --- 8. DEBUG ---
-with st.expander("🛠️ Developer Debug Info"):
-    st.json(debug_info)
+# 🛰️ REFRESH BUTTON (Placed exactly below the Run button as requested)
+if st.button("🛰️ Update System Status", use_container_width=True):
+    st.rerun()
+
+# --- 7. MODERATOR DEBUG TOOLS ---
+if is_mod:
+    with st.expander("👑 Moderator Debug Console"):
+        st.write("### API Response Codes")
+        st.json(debug_info)
+        if st.button("🔓 Force Clear (Reset App View)"):
+            st.rerun()
