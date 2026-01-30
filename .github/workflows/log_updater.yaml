@@ -30,15 +30,13 @@ jobs:
             -d refresh_token="${{ secrets.DROPBOX_REFRESH_TOKEN }}" | jq -r '.access_token')
           echo "atoken=$TOKEN" >> $GITHUB_OUTPUT
 
+# ... (previous steps: Setup, Install, Get Token) ...
+
       - name: Download, Merge & Priority Sort
         run: |
-          # 1. Download current master from Dropbox
           curl -L "${{ secrets.DROPBOXLINK }}" -o master_history.csv
 
-          # 2. Export from Discord based on user input
-          # Calculates the date based on the lookback_days input
           LOOKBACK_DATE=$(date -d "${{ github.event.inputs.lookback_days }} days ago" +%Y-%m-%d)
-          echo "Exporting everything after $LOOKBACK_DATE"
           
           ./dce/DiscordChatExporter.Cli export \
             -t "${{ secrets.DISCORD_TOKEN }}" \
@@ -46,45 +44,47 @@ jobs:
             -f Csv -o recent_slice.csv \
             --after "$LOOKBACK_DATE"
 
-          # 3. Priority Merge Logic (Inspired by your ISO Merger)
           python3 -c "
           import pandas as pd
-          import os
-
-          def priority_merge():
+          try:
+              # Force all columns to strings to prevent the 'str vs float' merge error
+              # Using header=None for Master, header=0 for New Export (DCE always adds header)
+              master = pd.read_csv('master_history.csv', header=None, dtype=str, low_memory=False)
+              recent = pd.read_csv('recent_slice.csv', header=0, dtype=str, low_memory=False)
+              
+              # Standardize column count to 4 (UserID, Username, Timestamp, Message)
+              # This removes any accidental 5th/empty columns from either file
+              master = master.iloc[:, :4]
+              recent = recent.iloc[:, :4]
+              
               cols = ['userID', 'userName', 'timestamp', 'message']
-              
-              # Load files
-              # Note: Using header=None because your Streamlit setup expects raw data
-              master = pd.read_csv('master_history.csv', names=cols, header=None, low_memory=False)
-              recent = pd.read_csv('recent_slice.csv', names=cols, header=0, low_memory=False)
-              
-              # --- PRIORITY LOGIC ---
-              # To 'replace' old messages with new ones:
-              # 1. Remove rows from master that exist in recent (based on ID + Timestamp)
-              # 2. Append the entire 'recent' slice
-              
-              # Use userID and timestamp as the unique key to identify 'the same message'
+              master.columns = cols
+              recent.columns = cols
+
+              # --- PRIORITY MERGE ---
+              # We use userID and timestamp as the unique key
               key = ['userID', 'timestamp']
               
-              # Identify overlaps
+              # Identify rows in master that are NOT in the recent export
+              # This 'clears the way' for the new, potentially fixed messages
               master_clean = master.merge(recent[key], on=key, how='left', indicator=True)
               master_clean = master_clean[master_clean['_merge'] == 'left_only'].drop(columns=['_merge'])
               
-              # Combine
+              # Combine and Sort
               final = pd.concat([master_clean, recent], ignore_index=True)
               
-              # Sorting
-              final['dt'] = pd.to_datetime(final['timestamp'], errors='coerce', utc=True)
-              final = final.dropna(subset=['dt']).sort_values('dt').drop(columns=['dt'])
-              
-              # Add the empty 5th column you requested earlier
-              final['empty'] = ''
-              
-              final.to_csv('test_merge.csv', index=False, header=False)
-              print(f'Merge complete. Final count: {len(final)}')
+              # Convert to datetime only for sorting purposes
+              final['dt_sort'] = pd.to_datetime(final['timestamp'], errors='coerce', utc=True)
+              final = final.dropna(subset=['dt_sort']).sort_values('dt_sort')
+              final = final.drop(columns=['dt_sort'])
 
-          priority_merge()
+              # Save with 4 columns, no header, no index
+              final.to_csv('test_merge.csv', index=False, header=False)
+              print(f'Merge successful. Final row count: {len(final)}')
+
+          except Exception as e:
+              print(f'Critical Error: {e}')
+              exit(1)
           "
 
       - name: Upload to Dropbox (TEST)
