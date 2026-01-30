@@ -14,7 +14,8 @@ is_allowed, is_syncing, time_left, last_mod, debug_info = get_global_cooldown()
 
 # Calculate local lock
 now = datetime.now(timezone.utc)
-local_locked = datetime.now(timezone.utc) < st.session_state['local_lock_until']
+# The local lock is just a "blind" shield for the first few minutes after clicking
+local_locked = now < st.session_state['local_lock_until']
 
 st.title("🔄 Data Refresh Hub")
 
@@ -25,35 +26,37 @@ max_days, guide_file, authorized, is_mod, use_text_input = 7, "NRefreshRequest_G
 if tier == "Authorized Personnel":
     pwd = st.text_input("Enter Credentials:", type="password")
     if pwd == st.secrets.get("MOD_PASSWORD"):
-        st.success("👑 Moderator Access: Unrestricted Window")
+        st.success("👑 Moderator Access")
         is_mod, use_text_input, guide_file = True, True, "ARefreshRequest_Guide.md"
     elif pwd == st.secrets.get("APASSWORD"):
-        st.success("✅ Authorized: 30-Day Range")
+        st.success("✅ Authorized Access")
         max_days, guide_file = 30, "ARefreshRequest_Guide.md"
     else:
         authorized = False
-        if pwd: st.error("Incorrect Password")
+        if pwd and len(pwd) > 0: st.error("Incorrect Password")
 else:
     authorized = True
 
 # --- 4. RENDER GUIDE ---
 try:
     render_markdown_guide(guide_file)
-except Exception as e:
-    st.caption(f"Guide Loader: {e}")
+except:
+    st.caption("Loading instructions...")
 
 st.divider()
 
-# --- 5. STATUS METRICS (MODIFIED) ---
+# --- 5. STATUS METRICS (STRICT HIERARCHY) ---
 c1, c2 = st.columns(2)
 with c1:
-    # If it is syncing GLOBALLY or LOCALLY (just sent), show the Yellow Warning
-    if is_syncing or local_locked:
-        st.warning("⏳ **Syncing in Progress...**")
-    # If the global cooldown is active, show the Red Error
-    elif not is_allowed:
+    # 1. GLOBAL COOLDOWN (Red) - Highest Priority
+    if not is_allowed and not is_syncing:
         st.error(f"🛑 **Global Cooldown:** {time_left}m")
-    # Otherwise, show Ready
+    
+    # 2. SYNCING (Yellow) - Second Priority
+    elif is_syncing or local_locked:
+        st.warning("⏳ **Syncing in Progress...**")
+    
+    # 3. READY (Green)
     else:
         st.success("✅ **System Ready**")
 
@@ -71,19 +74,18 @@ if use_text_input:
 else:
     days = st.select_slider("Select Lookback (Days):", range(1, max_days + 1), value=2)
 
-# Button Text & Disable State (Removed seconds from labels)
-if is_syncing or local_locked:
-    btn_label, btn_dis = "⏳ Syncing...", True
-elif not is_allowed:
+# --- BUTTON TEXT LOGIC ---
+if not is_allowed and not is_syncing:
     btn_label, btn_dis = f"🛑 Cooldown ({time_left}m)", True
+elif is_syncing or local_locked:
+    btn_label, btn_dis = "⏳ Syncing...", True
 elif not authorized:
     btn_label, btn_dis = "🔒 Credentials Required", True
 else:
     btn_label, btn_dis = "🚀 Trigger Sync Now", False
 
-# The Trigger Button
 if st.button(btn_label, disabled=btn_dis, use_container_width=True):
-    # Set the local shield for 10 minutes to cover the gap
+    # Set the local shield for 10 minutes to cover the gap before lock.txt exists
     st.session_state['local_lock_until'] = datetime.now(timezone.utc) + timedelta(minutes=10)
     if trigger_refresh(days):
         st.toast("Instruction received!")
@@ -92,7 +94,6 @@ if st.button(btn_label, disabled=btn_dis, use_container_width=True):
         st.session_state['local_lock_until'] = datetime.now(timezone.utc)
         st.error("GitHub Dispatch failed.")
 
-# 🛰️ REFRESH BUTTON
 if st.button("🛰️ Update System Status", use_container_width=True):
     st.rerun()
 
