@@ -1,0 +1,69 @@
+name: User Requested Refresh
+
+on:
+  repository_dispatch:
+    types: [manual_refresh_event]
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Tools
+        run: |
+          curl -L https://github.com/Tyrrrz/DiscordChatExporter/releases/latest/download/DiscordChatExporter.Cli.linux-x64.zip -o dce.zip
+          unzip dce.zip -d dce && chmod +x dce/DiscordChatExporter.Cli
+      
+      - name: Install Pandas
+        run: pip install pandas
+
+      - name: Get Dropbox Token
+        id: dropbox_auth
+        run: |
+          TOKEN=$(curl -s -X POST https://api.dropbox.com/oauth2/token \
+            -u "${{ secrets.DROPBOX_APP_KEY }}:${{ secrets.DROPBOX_APP_SECRET }}" \
+            -d grant_type=refresh_token \
+            -d refresh_token="${{ secrets.DROPBOX_REFRESH_TOKEN }}" | jq -r '.access_token')
+          echo "atoken=$TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Merge and Export
+        run: |
+          curl -L "${{ secrets.DROPBOXLINK }}" -o master_history.csv
+          
+          # Use the days passed from Streamlit (default 1)
+          DAYS="${{ github.event.client_payload.days }}"
+          LOOKBACK_DATE=$(date -d "$DAYS days ago" +%Y-%m-%d)
+          
+          ./dce/DiscordChatExporter.Cli export \
+            -t "${{ secrets.DISCORD_TOKEN }}" \
+            -c ${{ secrets.CHANNEL_ID }} \
+            -f Csv -o recent_slice.csv \
+            --after "$LOOKBACK_DATE"
+
+          python3 -c "
+          import pandas as pd
+          try:
+              m = pd.read_csv('master_history.csv', header=None, dtype=str).iloc[:, :4]
+              r = pd.read_csv('recent_slice.csv', header=0, dtype=str).iloc[:, :4]
+              cols = ['userID', 'userName', 'timestamp', 'message']
+              m.columns = cols
+              r.columns = cols
+              
+              m_clean = m.merge(r[['userID', 'timestamp']], on=['userID', 'timestamp'], how='left', indicator=True)
+              m_clean = m_clean[m_clean['_merge'] == 'left_only'].drop(columns=['_merge'])
+              
+              final = pd.concat([m_clean, r], ignore_index=True)
+              final['dt'] = pd.to_datetime(final['timestamp'], errors='coerce', utc=True)
+              final = final.dropna(subset=['dt']).sort_values('dt').drop(columns=['dt'])
+              
+              final.to_csv('test_merge.csv', index=False, header=False)
+          except Exception as e:
+              print(e); exit(1)
+          "
+
+      - name: Upload to Dropbox (TEST)
+        run: |
+          curl -X POST https://content.dropboxapi.com/2/files/upload \
+            --header "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
+            --header "Dropbox-API-Arg: {\"path\": \"/bruh/bruh_log/test_merge.csv\",\"mode\": \"overwrite\"}" \
+            --header "Content-Type: application/octet-stream" \
+            --data-binary @test_merge.csv
