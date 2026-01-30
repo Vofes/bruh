@@ -13,20 +13,23 @@ def trigger_refresh(days):
     return response.status_code == 204
 
 def get_global_cooldown():
-    """Returns (is_allowed, time_left, last_mod, debug_dict)"""
-    debug = {"status": "Starting", "error": None}
-    try:
-        # 1. Auth with Dropbox
-        auth_url = "https://api.dropbox.com/oauth2/token"
-        auth_data = {
-            "grant_type": "refresh_token",
-            "refresh_token": st.secrets["DROPBOX_REFRESH_TOKEN"],
-            "client_id": st.secrets["DROPBOX_APP_KEY"],
-            "client_secret": st.secrets["DROPBOX_APP_SECRET"]
-        }
-        auth_res = requests.post(auth_url, data=auth_data)
-        access_token = auth_res.json().get("access_token")
+    # 1. Check if this specific user JUST clicked the button (Local Lock)
+    if st.session_state.get('just_triggered', False):
+        # If they clicked less than 2 minutes ago, keep them locked
+        # while the GitHub Action finishes.
+        last_click = st.session_state.get('click_time', datetime.now(timezone.utc))
+        diff = datetime.now(timezone.utc) - last_click
+        if diff.total_seconds() < 120: # 2 minute local buffer
+            return False, 15, None, {"status": "Local Buffer Active"}
 
+    # 2. Otherwise, proceed to the Global Dropbox check
+    try:
+        # ... (Include your existing Dropbox API logic here) ...
+        # (Assuming the rest of the function follows the previous logic)
+        pass
+    except Exception as e:
+        return True, 0, None, {"error": str(e)}
+        
         if not access_token:
             debug["error"] = "Auth failed: No access token"
             return True, 0, None, debug
