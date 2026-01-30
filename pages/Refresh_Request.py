@@ -1,39 +1,37 @@
 import streamlit as st
-from src.refresh_logic import trigger_github_sync, get_file_age_minutes
+from src.refresh_logic import trigger_refresh, get_cooldown_status
+from src.guide_loader import render_guide # Assuming this is your function
+from datetime import datetime
 
-st.set_page_config(page_title="Refresh Request")
-st.title("🔄 Sync Control")
+st.set_page_config(page_title="Refresh Request", page_icon="🔄")
 
-# 20-minute logic
-file_age = get_file_age_minutes()
-cooldown = 20 
+# 1. Load the Guide from GitHub/Local
+try:
+    render_guide("RefreshRequestGude.md")
+except:
+    st.info("Guide loading...")
 
-tab1, tab2 = st.tabs(["Normal Refresh", "Authorized Refresh"])
+st.divider()
 
-with tab1:
-    st.info(f"Normal Mode (0-100h). Required cooldown: {cooldown} mins.")
-    n_hours = st.slider("Hours", 1, 100, 24, key="n_h")
-    
-    if file_age < cooldown:
-        st.error(f"🚫 System locked. Please wait {cooldown - file_age} more minutes.")
-        st.button("Request Refresh", disabled=True, key="n_btn")
-    else:
-        if st.button("Request Refresh", key="n_btn_act"):
-            if trigger_github_sync(n_hours):
-                st.success("Request Sent! Wait ~2 mins for Dropbox update.")
+# 2. Refresh UI
+st.subheader("Manual Data Sync")
+st.write("Request a fresh export from Discord. This will update the test file.")
+
+days_to_sync = st.slider("Select days to look back:", 1, 5, 2)
+
+can_refresh, time_left = get_cooldown_status()
+
+if can_refresh:
+    if st.button("🚀 Trigger Refresh"):
+        with st.spinner("Communicating with GitHub..."):
+            success = trigger_refresh(days_to_sync)
+            if success:
+                st.session_state['last_refresh'] = datetime.now()
+                st.success(f"Refresh triggered! Check Dropbox for 'test_merge.csv' in a few minutes.")
+                st.balloons()
             else:
-                st.error("Failed to trigger.")
+                st.error("GitHub API rejected the request. Check your tokens.")
+else:
+    st.warning(f"Cooldown Active: Please wait {time_left} minutes before requesting again.")
 
-with tab2:
-    st.info("Authorized Mode (0-1000h). No cooldown.")
-    pwd = st.text_input("Admin Password", type="password")
-    a_hours = st.slider("Hours", 1, 1000, 500, key="a_h")
-    
-    if st.button("Execute Admin Force"):
-        if pwd == st.secrets["REFRESH_PASSWORD"]:
-            if trigger_github_sync(a_hours):
-                st.success(f"Admin Force Sent for {a_hours}h!")
-            else:
-                st.error("Trigger Failed.")
-        else:
-            st.error("Invalid Password.")
+st.info("Note: During this test phase, output is saved to `/bruh/bruh_log/test_merge.csv`.")
