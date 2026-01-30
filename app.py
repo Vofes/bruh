@@ -19,7 +19,6 @@ if 'current_file_time' not in st.session_state:
 def get_actual_dropbox_mtime():
     """Uses the Dropbox API to get the REAL modified time of the file."""
     try:
-        # 1. Get Access Token (Same logic as your refresh page)
         auth_res = requests.post("https://api.dropbox.com/oauth2/token", data={
             "grant_type": "refresh_token", 
             "refresh_token": st.secrets["DROPBOX_REFRESH_TOKEN"],
@@ -28,9 +27,7 @@ def get_actual_dropbox_mtime():
         }).json()
         token = auth_res.get("access_token")
 
-        # 2. Call Metadata API
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        # Ensure this path matches exactly where your GitHub Action saves the file
         data = {"path": "/bruh/bruh_log/bruh_log.csv"} 
         
         res = requests.post("https://api.dropboxapi.com/2/files/get_metadata", headers=headers, json=data).json()
@@ -42,9 +39,10 @@ def get_actual_dropbox_mtime():
         return None
     return None
 
+# REMOVED the version_trigger from here so it doesn't auto-refresh
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(version_trigger):
-    """Downloads CSV. Triggered to reload if version_trigger changes."""
+def load_data():
+    """Downloads CSV. Only runs if 60 mins pass OR cache is cleared manually."""
     df = pd.read_csv(DB_LINK, header=None, dtype=str, low_memory=False)
     df.columns = ['MessageID', 'Author', 'Timestamp', 'Content'] + [f'col_{i}' for i in range(4, len(df.columns))]
     df['Timestamp'] = pd.to_datetime(df['Timestamp'], utc=True, errors='coerce')
@@ -60,10 +58,9 @@ with st.expander("📖 View Bruh-App Guide"):
 st.divider()
 
 # 2. THE SMART SYNC CHECK
-# We check the API for the ACTUAL file timestamp
 live_file_time = get_actual_dropbox_mtime()
 
-# Initial Load
+# Initial Load logic
 if st.session_state['current_file_time'] is None:
     if live_file_time:
         st.session_state['current_file_time'] = live_file_time
@@ -71,15 +68,13 @@ if st.session_state['current_file_time'] is None:
         st.session_state['current_file_time'] = datetime.now(timezone.utc)
     st.session_state['last_update_check'] = datetime.now(timezone.utc).strftime("%H:%M:%S")
 
-# 3. LOAD DATA
-# We use live_file_time as the cache key. If the file on Dropbox changes, 
-# the key changes, and st.cache_data automatically re-downloads.
-df = load_data(live_file_time)
+# 3. LOAD DATA (Standard Load)
+df = load_data()
 
 # 4. COMPARE
 is_stale = False
 if live_file_time and st.session_state['current_file_time']:
-    # Check if Dropbox has a newer timestamp than what we currently have in session
+    # Detect if Dropbox is newer than our session's recorded file time
     if live_file_time > st.session_state['current_file_time']:
         is_stale = True
 
@@ -87,19 +82,16 @@ if live_file_time and st.session_state['current_file_time']:
 m1, m2, m3 = st.columns([1, 1.2, 0.8])
 
 with m1:
-    # #1 DATA FILE TIME
-    # This now shows the REAL modified date from Dropbox API
     file_time = st.session_state['current_file_time']
     st.metric("Data File Time", file_time.strftime("%H:%M UTC"))
-    st.caption("Actual file modified time")
+    st.caption("Modified time of loaded file")
 
 with m2:
-    # #2 SYNC STATUS
     if is_stale:
         st.warning("🔄 New Data Detected")
         if st.button("📥 Sync New Data Now", use_container_width=True):
-            st.cache_data.clear()
-            st.session_state['current_file_time'] = live_file_time
+            st.cache_data.clear() # Clears the 60-min cache
+            st.session_state['current_file_time'] = live_file_time # Updates session time
             st.rerun()
     else:
         st.success("✅ Data is Up-to-Date")
@@ -109,7 +101,6 @@ with m2:
     st.caption(f"Last checked: {st.session_state['last_update_check']}")
 
 with m3:
-    # #3 TOTAL MESSAGES
     st.metric("Total Messages", f"{len(df):,}")
 
 st.divider()
