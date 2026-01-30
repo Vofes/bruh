@@ -42,19 +42,26 @@ with st.expander("🛠️ Developer Debug Logs"):
 
 st.divider()
 
-# --- ACTION SECTION ---
+# --- REFRESH ACTION SECTION ---
+
 if not is_allowed:
-    st.info(f"The data was recently updated. You can request another sync in **{time_left} minutes**.")
+    st.info(f"🕒 System cooling down. Available in **{time_left} minutes**.")
     st.button("🚀 Trigger Refresh", disabled=True, use_container_width=True)
 else:
-    st.success("The system is ready for a new data pull from Discord.")
-    days = st.select_slider("Select lookback range (Days):", options=[1, 2, 3, 4, 5], value=2)
+    days = st.select_slider("Select lookback range:", options=[1, 2, 3, 4, 5], value=2)
     
     if st.button("🚀 Trigger Refresh", use_container_width=True):
-        with st.spinner("Dispatching refresh request to GitHub..."):
+        # IMMEDIATE LOCAL LOCK
+        st.session_state['just_triggered'] = True
+        st.session_state['click_time'] = datetime.now(timezone.utc)
+        
+        with st.spinner("Initializing GitHub Workflow..."):
             if trigger_refresh(days):
-                st.toast("GitHub Action Triggered!")
+                st.toast("Success! The update is now in progress.")
                 st.balloons()
+                # We rerun to ensure the UI immediately shows the 'disabled' button
                 st.rerun()
             else:
-                st.error("Could not reach GitHub Actions. Check Secrets.")
+                # Reset lock if GitHub fails
+                st.session_state['just_triggered'] = False
+                st.error("GitHub Dispatch failed.")
