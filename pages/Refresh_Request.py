@@ -1,6 +1,16 @@
 import streamlit as st
-from src.refresh_logic import trigger_refresh, get_global_cooldown
-from src.guide_loader import render_markdown_guide
+import sys
+import os
+
+sys.path.append(os.getcwd())
+
+try:
+    from src.refresh_logic import trigger_refresh, get_global_cooldown
+    from src.guide_loader import render_markdown_guide
+except ImportError as e:
+    st.error(f"Import Error: {e}")
+    st.stop()
+
 
 st.set_page_config(page_title="Refresh Request", page_icon="🔄")
 
