@@ -2,7 +2,26 @@ import requests
 import streamlit as st
 from datetime import datetime, timezone
 
+def trigger_refresh(days):
+    """Triggers the GitHub Action via Repository Dispatch."""
+    repo = st.secrets["GITHUB_REPO"]
+    token = st.secrets["GITHUB_TOKEN"]
+    
+    url = f"https://api.github.com/repos/{repo}/dispatches"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    payload = {
+        "event_type": "manual_refresh_event",
+        "client_payload": {"days": int(days)}
+    }
+    
+    response = requests.post(url, json=payload, headers=headers)
+    return response.status_code == 204
+
 def get_global_cooldown():
+    """Checks Dropbox metadata to see when the log was last updated."""
     try:
         # 1. Get Access Token
         url = "https://api.dropbox.com/oauth2/token"
@@ -26,21 +45,15 @@ def get_global_cooldown():
         res = requests.post(meta_url, headers=headers, json=payload)
         
         if res.status_code == 200:
-            # Parse Dropbox Time (Format: 2024-10-27T10:00:00Z)
-            # We strip the Z and force it to UTC
             server_time_str = res.json()['server_modified'].replace('Z', '')
             last_mod = datetime.fromisoformat(server_time_str).replace(tzinfo=timezone.utc)
-            
-            # Use datetime.now(timezone.utc) to ensure we aren't using local time
             now_utc = datetime.now(timezone.utc)
             
             diff = now_utc - last_mod
             mins_passed = int(diff.total_seconds() // 60)
             
-            # DEBUG: These show up in your "Manage App" logs
-            print(f"DEBUG: File Last Mod (UTC): {last_mod}")
-            print(f"DEBUG: Current Time (UTC): {now_utc}")
-            print(f"DEBUG: Minutes Passed: {mins_passed}")
+            # These help you debug in the Streamlit logs
+            print(f"DEBUG: Minutes Passed since update: {mins_passed}")
 
             if mins_passed < 15:
                 return False, (15 - mins_passed)
