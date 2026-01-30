@@ -25,11 +25,12 @@ jobs:
             -d refresh_token="${{ secrets.DROPBOX_REFRESH_TOKEN }}" | jq -r '.access_token')
           echo "atoken=$TOKEN" >> $GITHUB_OUTPUT
 
-      - name: Merge and Export
+      - name: Priority Merge & Export
         run: |
+          # 1. Download Master (The LIVE file)
           curl -L "${{ secrets.DROPBOXLINK }}" -o master_history.csv
           
-          # Use the days passed from Streamlit (default 1)
+          # 2. Get Days from Streamlit Payload
           DAYS="${{ github.event.client_payload.days }}"
           LOOKBACK_DATE=$(date -d "$DAYS days ago" +%Y-%m-%d)
           
@@ -39,6 +40,7 @@ jobs:
             -f Csv -o recent_slice.csv \
             --after "$LOOKBACK_DATE"
 
+          # 3. Priority Merge logic
           python3 -c "
           import pandas as pd
           try:
@@ -55,15 +57,17 @@ jobs:
               final['dt'] = pd.to_datetime(final['timestamp'], errors='coerce', utc=True)
               final = final.dropna(subset=['dt']).sort_values('dt').drop(columns=['dt'])
               
-              final.to_csv('test_merge.csv', index=False, header=False)
+              # Saving as the final production file
+              final.to_csv('final_master.csv', index=False, header=False)
           except Exception as e:
               print(e); exit(1)
           "
 
-      - name: Upload to Dropbox (TEST)
+      - name: Upload to Dropbox (LIVE FILE)
         run: |
+          # OVERWRITING THE MAIN LOG FILE
           curl -X POST https://content.dropboxapi.com/2/files/upload \
             --header "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
-            --header "Dropbox-API-Arg: {\"path\": \"/bruh/bruh_log/test_merge.csv\",\"mode\": \"overwrite\"}" \
+            --header "Dropbox-API-Arg: {\"path\": \"/bruh/bruh_log/bruh_log.csv\",\"mode\": \"overwrite\"}" \
             --header "Content-Type: application/octet-stream" \
-            --data-binary @test_merge.csv
+            --data-binary @final_master.csv
