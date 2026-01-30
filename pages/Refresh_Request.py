@@ -1,40 +1,31 @@
 import streamlit as st
-from src.refresh_logic import trigger_refresh, get_cooldown_status
+from src.refresh_logic import trigger_refresh, get_global_cooldown
 from src.guide_loader import render_markdown_guide
-from datetime import datetime
 
 st.set_page_config(page_title="Refresh Request", page_icon="🔄")
 
-# 1. Load the Guide using your custom function
-try:
-    render_markdown_guide("RefreshRequest_Guide.md")
-except Exception as e:
-    st.error(f"Could not load guide: {e}")
-
+render_markdown_guide("RefreshRequestGude.md")
 st.divider()
 
-# 2. Refresh Interface
-st.subheader("Manual Data Sync")
-st.info("🔄 This request updates the **test_merge.csv** file.")
+st.subheader("Global Sync Request")
 
-# Normal requests allow 1 to 5 days
-days_to_sync = st.select_slider(
-    "Select lookback period (Days):",
-    options=[1, 2, 3, 4, 5],
-    value=2
-)
+# Check global status
+is_allowed, time_left = get_global_cooldown()
 
-can_refresh, time_left = get_cooldown_status()
-
-if can_refresh:
-    if st.button("🚀 Trigger Refresh"):
-        with st.spinner("Sending request to GitHub..."):
-            success = trigger_refresh(days_to_sync)
-            if success:
-                st.session_state['last_refresh'] = datetime.now()
-                st.success("Request sent! The test file will update in 2-3 minutes.")
-                st.balloons()
-            else:
-                st.error("Request failed. Ensure GITHUB_TOKEN and GITHUB_REPO are set in Secrets.")
+if not is_allowed:
+    st.error(f"🛑 **Global Cooldown Active.** The log was updated recently.")
+    st.info(f"Please wait **{time_left} minutes** before anyone can request another sync.")
+    st.button("🚀 Trigger Refresh", disabled=True)
 else:
-    st.warning(f"Cooldown Active: Please wait **{time_left} minutes** before requesting again.")
+    st.success("✅ System ready. No active cooldown.")
+    days_to_sync = st.select_slider("Days to look back:", options=[1, 2, 3, 4, 5], value=2)
+    
+    if st.button("🚀 Trigger Refresh"):
+        with st.spinner("Dispatching GitHub Action..."):
+            if trigger_refresh(days_to_sync):
+                st.success("Request sent! The file will update shortly.")
+                st.balloons()
+                # We force a rerun to show the newly triggered cooldown
+                st.rerun()
+            else:
+                st.error("Failed to trigger. Check GitHub Token permissions.")
