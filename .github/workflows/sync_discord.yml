@@ -1,4 +1,6 @@
-name: Discord Log Updater
+# used to generate all the messages
+
+#name: Discord Log Updater
 
 on:
   workflow_dispatch: # Manual trigger from Streamlit or GH UI
