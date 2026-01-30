@@ -8,14 +8,18 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
       - name: Setup Tools
         run: |
           curl -L https://github.com/Tyrrrz/DiscordChatExporter/releases/latest/download/DiscordChatExporter.Cli.linux-x64.zip -o dce.zip
           unzip dce.zip -d dce && chmod +x dce/DiscordChatExporter.Cli
-      
+
       - name: Install Pandas
         run: pip install pandas
 
+      # 1. GET REFRESHED TOKEN (Used for Lock, Upload, and Unlock)
       - name: Get Dropbox Token
         id: dropbox_auth
         run: |
@@ -25,12 +29,19 @@ jobs:
             -d refresh_token="${{ secrets.DROPBOX_REFRESH_TOKEN }}" | jq -r '.access_token')
           echo "atoken=$TOKEN" >> $GITHUB_OUTPUT
 
+      # 2. SET THE GLOBAL LOCK (Immediately tells Streamlit "Syncing...")
+      - name: Set Global Lock
+        run: |
+          curl -X POST https://content.dropboxapi.com/2/files/upload \
+            -H "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
+            -H "Dropbox-API-Arg: {\"path\": \"/bruh/lock.txt\",\"mode\": \"overwrite\"}" \
+            -H "Content-Type: application/octet-stream" \
+            --data "busy"
+
+      # 3. YOUR ORIGINAL MERGE & EXPORT LOGIC
       - name: Priority Merge & Export
         run: |
-          # 1. Download Master (The LIVE file)
           curl -L "${{ secrets.DROPBOXLINK }}" -o master_history.csv
-          
-          # 2. Get Days from Streamlit Payload
           DAYS="${{ github.event.client_payload.days }}"
           LOOKBACK_DATE=$(date -d "$DAYS days ago" +%Y-%m-%d)
           
@@ -40,7 +51,6 @@ jobs:
             -f Csv -o recent_slice.csv \
             --after "$LOOKBACK_DATE"
 
-          # 3. Priority Merge logic
           python3 -c "
           import pandas as pd
           try:
@@ -49,25 +59,31 @@ jobs:
               cols = ['userID', 'userName', 'timestamp', 'message']
               m.columns = cols
               r.columns = cols
-              
               m_clean = m.merge(r[['userID', 'timestamp']], on=['userID', 'timestamp'], how='left', indicator=True)
               m_clean = m_clean[m_clean['_merge'] == 'left_only'].drop(columns=['_merge'])
-              
               final = pd.concat([m_clean, r], ignore_index=True)
               final['dt'] = pd.to_datetime(final['timestamp'], errors='coerce', utc=True)
               final = final.dropna(subset=['dt']).sort_values('dt').drop(columns=['dt'])
-              
-              # Saving as the final production file
               final.to_csv('final_master.csv', index=False, header=False)
           except Exception as e:
               print(e); exit(1)
           "
 
+      # 4. UPLOAD THE LIVE FILE
       - name: Upload to Dropbox (LIVE FILE)
         run: |
-          # OVERWRITING THE MAIN LOG FILE
           curl -X POST https://content.dropboxapi.com/2/files/upload \
             --header "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
             --header "Dropbox-API-Arg: {\"path\": \"/bruh/bruh_log/bruh_log.csv\",\"mode\": \"overwrite\"}" \
             --header "Content-Type: application/octet-stream" \
             --data-binary @final_master.csv
+
+      # 5. REMOVE GLOBAL LOCK (Release the app)
+      # if: always() ensures that if Pandas or DCE fails, the app isn't locked forever
+      - name: Remove Global Lock
+        if: always()
+        run: |
+          curl -X POST https://api.dropboxapi.com/2/files/delete_v2 \
+            -H "Authorization: Bearer ${{ steps.dropbox_auth.outputs.atoken }}" \
+            -H "Content-Type: application/json" \
+            --data "{\"path\": \"/bruh/lock.txt\"}"
