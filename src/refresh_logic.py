@@ -2,49 +2,59 @@ import requests
 import streamlit as st
 from datetime import datetime, timezone
 
-def get_dropbox_access_token():
-    """Generates a temporary access token using the refresh token."""
-    url = "https://api.dropbox.com/oauth2/token"
-    data = {
-        "grant_type": "refresh_token",
-        "refresh_token": st.secrets["DROPBOX_REFRESH_TOKEN"],
-        "client_id": st.secrets["DROPBOX_APP_KEY"],
-        "client_secret": st.secrets["DROPBOX_APP_SECRET"]
+# Ensure this function starts at the very beginning of the line!
+def trigger_refresh(days):
+    """Triggers the GitHub Action via Repository Dispatch."""
+    repo = st.secrets["GITHUB_REPO"]
+    token = st.secrets["GITHUB_TOKEN"]
+    
+    url = f"https://api.github.com/repos/{repo}/dispatches"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json"
     }
-    response = requests.post(url, data=data)
-    if response.status_code == 200:
-        return response.json()["access_token"]
-    return None
+    payload = {
+        "event_type": "manual_refresh_event",
+        "client_payload": {"days": int(days)}
+    }
+    
+    response = requests.post(url, json=payload, headers=headers)
+    return response.status_code == 204
 
 def get_global_cooldown():
     """Checks Dropbox metadata to see when the log was last updated."""
-    # 1. Get a temporary token
-    access_token = get_dropbox_access_token()
-    if not access_token:
-        return True, 0 # Allow if auth fails to avoid locking the app
-    
-    url = "https://api.dropboxapi.com/2/files/get_metadata"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-    # Path must match exactly what is in your GitHub Action
-    data = {"path": "/bruh/bruh_log/bruh_log.csv"}
-    
+    # Simplified version for checking if it imports correctly
     try:
-        response = requests.post(url, headers=headers, json=data)
-        if response.status_code == 200:
-            metadata = response.json()
-            # server_modified is UTC (e.g., 2023-10-27T10:00:00Z)
-            last_mod_str = metadata['server_modified'].replace('Z', '')
-            last_modified = datetime.fromisoformat(last_mod_str).replace(tzinfo=timezone.utc)
+        # Check if secrets exist before trying to use them
+        if "DROPBOX_REFRESH_TOKEN" not in st.secrets:
+            return True, 0
             
-            diff = datetime.now(timezone.utc) - last_modified
-            minutes_passed = int(diff.total_seconds() // 60)
-            
-            if minutes_passed < 15:
-                return False, 15 - minutes_passed
+        url = "https://api.dropbox.com/oauth2/token"
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": st.secrets["DROPBOX_REFRESH_TOKEN"],
+            "client_id": st.secrets["DROPBOX_APP_KEY"],
+            "client_secret": st.secrets["DROPBOX_APP_SECRET"]
+        }
+        auth_res = requests.post(url, data=data)
+        access_token = auth_res.json().get("access_token")
+        
+        if not access_token:
+            return True, 0
+
+        # Dropbox check
+        meta_url = "https://api.dropboxapi.com/2/files/get_metadata"
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        payload = {"path": "/bruh/bruh_log/bruh_log.csv"}
+        
+        res = requests.post(meta_url, headers=headers, json=payload)
+        if res.status_code == 200:
+            last_mod_str = res.json()['server_modified'].replace('Z', '')
+            last_mod = datetime.fromisoformat(last_mod_str).replace(tzinfo=timezone.utc)
+            diff = datetime.now(timezone.utc) - last_mod
+            mins = int(diff.total_seconds() // 60)
+            if mins < 15:
+                return False, 15 - mins
     except Exception:
-        pass 
-    
+        pass
     return True, 0
