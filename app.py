@@ -11,7 +11,6 @@ DB_LINK = st.secrets["DROPBOXLINK"]
 # Ensure session state variables exist
 if 'last_update_check' not in st.session_state:
     st.session_state['last_update_check'] = "Never"
-# This stores the timestamp of the file currently loaded in the app
 if 'current_file_time' not in st.session_state:
     st.session_state['current_file_time'] = None
 
@@ -20,21 +19,23 @@ if 'current_file_time' not in st.session_state:
 def get_dropbox_metadata():
     """Fetches the live 'Last-Modified' header from Dropbox."""
     try:
-        # Cache-buster ensures we don't get a stale header from a previous request
+        # Cache-buster ensures we don't get a stale header
+        # We use head() for speed; if it fails, we return None
         url = f"{DB_LINK}&t={int(time.time())}"
-        response = requests.head(url, timeout=5)
+        response = requests.head(url, timeout=7)
         last_mod_str = response.headers.get('last-modified')
         
         if last_mod_str:
             dt = datetime.strptime(last_mod_str, '%a, %d %b %Y %H:%M:%S %Z')
             return dt.replace(tzinfo=timezone.utc)
-    except Exception as e:
+    except Exception:
         return None
     return None
 
-@st.cache_data(show_spinner=False)
-def load_data():
-    """Downloads CSV and returns the dataframe + its source timestamp."""
+# RESTORED 60-MINUTE TTL (3600 seconds)
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_data(force_reload_trigger):
+    """Downloads CSV. Triggered to reload if version changes."""
     df = pd.read_csv(DB_LINK, header=None, dtype=str, low_memory=False)
     df.columns = ['MessageID', 'Author', 'Timestamp', 'Content'] + [f'col_{i}' for i in range(4, len(df.columns))]
     df['Timestamp'] = pd.to_datetime(df['Timestamp'], utc=True, errors='coerce')
@@ -50,22 +51,25 @@ with st.expander("📖 View Bruh-App Guide"):
 st.divider()
 
 # 2. THE SMART SYNC CHECK
-# Get the live time from Dropbox immediately
+# Run the check at the start of every script run
 live_file_time = get_dropbox_metadata()
 
-# If this is the first run, load data and store its timestamp
+# FALLBACK: If current_file_time is stuck, initialize it with whatever we can get
 if st.session_state['current_file_time'] is None:
-    df = load_data()
-    st.session_state['current_file_time'] = live_file_time
-    st.session_state['last_update_check'] = datetime.now(timezone.utc).strftime("%H:%M:%S")
-else:
-    df = load_data()
+    if live_file_time:
+        st.session_state['current_file_time'] = live_file_time
+    else:
+        # If Dropbox is down, use a placeholder so the UI doesn't hang
+        st.session_state['current_file_time'] = datetime.now(timezone.utc)
 
-# 3. COMPARE: Is the live file newer than the one we have in memory?
+# 3. LOAD DATA
+# We pass live_file_time into the cache function. 
+# If live_file_time changes, the cache "key" changes, forcing a new download.
+df = load_data(st.session_state['current_file_time'])
+
+# 4. COMPARE: Is the live file newer than the one stored in session?
 is_stale = False
 if live_file_time and st.session_state['current_file_time']:
-    # We compare the two Dropbox timestamps directly. 
-    # If the live one is even 1 second newer than our stored one, it's stale.
     if live_file_time > st.session_state['current_file_time']:
         is_stale = True
 
@@ -73,12 +77,9 @@ if live_file_time and st.session_state['current_file_time']:
 m1, m2, m3 = st.columns([1, 1.2, 0.8])
 
 with m1:
-    # #1 DATA LOCAL AGE (The timestamp of the file currently in memory)
+    # #1 DATA FILE TIME
     file_time = st.session_state['current_file_time']
-    if file_time:
-        st.metric("Data File Time", file_time.strftime("%H:%M:%S UTC"))
-    else:
-        st.metric("Data File Time", "Checking...")
+    st.metric("Data File Time", file_time.strftime("%H:%M:%S UTC"))
     st.caption("Modified time of loaded file")
 
 with m2:
@@ -87,7 +88,8 @@ with m2:
         st.warning("🔄 New File Detected")
         if st.button("📥 Sync New Data Now", use_container_width=True):
             st.cache_data.clear()
-            st.session_state['current_file_time'] = None # Reset so it re-fetches
+            # Update session state to the new time so the warning disappears after sync
+            st.session_state['current_file_time'] = live_file_time
             st.rerun()
     else:
         st.success("✅ Data is Up-to-Date")
