@@ -63,7 +63,7 @@ with c1:
     
     # 2. SYNCING (Yellow) - Second Priority
     elif is_syncing or local_locked:
-        st.warning("⏳ **Syncing in Progress...**")
+        st.warning("⏳ **Syncing in Progress...** (Program RETIRED, the page will show this stage for 10 minutes, before going back)")
     
     # 3. READY (Green)
     else:
