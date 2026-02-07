@@ -49,9 +49,9 @@ df = st.session_state['df']
 with st.sidebar:
     st.header("⚙️ Global BotCheck")
     # Defaulting to your specified starting point
-    start_bruh = st.number_input("Starting Bruh #", value=311925)
+    start_bruh = st.number_input("Starting Bruh #", value=0)
     end_bruh = st.number_input("Ending Bruh # (0=End)", value=0)
-    jump_limit = st.number_input("Max Jump Allowed", value=1500)
+    jump_limit = st.number_input("Max Jump Allowed (In most cases better if left unchanged)", value=100)
     hide_invalid = st.checkbox("Hide 'No Consensus' Bruhs", value=False)
     
     st.divider()
