@@ -5,13 +5,11 @@ from datetime import datetime, timezone, timedelta
 
 st.set_page_config(page_title="Refresh Request", page_icon="🔄")
 md_file_path="RefreshRequest_Retired.md"
-if md_file_path.exists():
-    with st.warning("⚠️ This page is retired."):
-        render_markdown_guide(str(md_file_path))
-else:
-    st.warning(f"Note: {md_file_path.name} not found.")
 
-st.divider() # Optional: Visual break before the old retiring code
+with st.warning("⚠️ This page is retired."):
+    render_markdown_guide(str(md_file_path))
+
+st.divider() #Optional: Visual break before the old retiring code
 
 
 
