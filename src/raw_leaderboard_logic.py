@@ -2,35 +2,42 @@ import pandas as pd
 import re
 
 def get_static_raw_leaderboard(df):
-    """The official, unfiltered leaderboard logic."""
-    processed_df = df.copy()
-    processed_df['Content'] = processed_df['Content'].astype(str)
+    """Calculates both the specific command count and the general mention count."""
+    df['Content'] = df['Content'].astype(str)
     
-    # Static Pattern: Starts with 'bruh' + space + number
-    pattern = r'(?i)^bruh\s+(\d+)'
+    # 1. Specific Pattern: 'bruh [number]'
+    cmd_pattern = r'(?i)^bruh\s+(\d+)'
+    df['is_cmd'] = df['Content'].str.contains(cmd_pattern, na=False, regex=True)
     
-    is_bruh_mask = processed_df['Content'].str.contains(pattern, na=False, regex=True)
-    raw_bruhs = processed_df[is_bruh_mask].copy()
+    # 2. General Pattern: Any message containing 'bruh'
+    df['is_mention'] = df['Content'].str.contains('bruh', case=False, na=False)
 
-    leaderboard = raw_bruhs.groupby('Author').size().reset_index(name='Bruh Count')
-    return leaderboard.sort_values(by='Bruh Count', ascending=False)
+    # Aggregate
+    stats = df.groupby('Author').agg(
+        Command_Count=('is_cmd', 'sum'),
+        Total_Mentions=('is_mention', 'sum')
+    ).reset_index()
+    
+    return stats.sort_values(by='Command_Count', ascending=False)
 
-def run_debug_audit(df, target_user, exclude_str, include_str):
-    """The dynamic logic used only in the debug section."""
+def run_debug_audit(df, target_user, exclude_str, include_str, show_counted):
+    """Filters the user data based on strict inclusion/exclusion and count status."""
+    # Filter user first to save memory
     user_df = df[df['Author'] == target_user].copy()
     user_df['Content'] = user_df['Content'].astype(str)
     
-    pattern = r'(?i)^bruh\s+(\d+)'
+    cmd_pattern = r'(?i)^bruh\s+(\d+)'
+    user_df['Matches Pattern'] = user_df['Content'].str.contains(cmd_pattern, na=False, regex=True)
+
+    # Strict Filters
+    if include_str:
+        user_df = user_df[user_df['Content'].str.contains(include_str, case=False, na=False)]
+    if exclude_str:
+        user_df = user_df[~user_df['Content'].str.contains(exclude_str, case=False, na=False)]
+
+    # Counted vs Not Counted Filter
+    if not show_counted:
+        user_df = user_df[user_df['Matches Pattern'] == False]
     
-    # 1. Check Pattern Match
-    user_df['Matches Pattern'] = user_df['Content'].str.contains(pattern, na=False, regex=True)
-    
-    # 2. Check Debug Filters
-    passed_ex = ~user_df['Content'].str.contains(exclude_str, regex=False) if exclude_str else True
-    passed_in = user_df['Content'].str.contains(include_str, regex=False) if include_str else True
-    user_df['Passed Filters'] = passed_ex & passed_in
-    
-    # 3. Final Result
-    user_df['COUNTED?'] = user_df['Matches Pattern'] & user_df['Passed Filters']
-    
-    return user_df
+    # Return limited results to prevent browser freeze (Latest 500)
+    return user_df.tail(500)
