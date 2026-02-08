@@ -1,29 +1,48 @@
 import pandas as pd
-import requests
 import re
-import streamlit as st
 
-def get_raw_bruh_data(dropbox_url):
-    # Dropbox workaround: change ?dl=0 to ?dl=1 to get direct download link
-    direct_url = dropbox_url.replace("www.dropbox.com", "dl.dropboxusercontent.com").replace("?dl=0", "?dl=1")
+def process_bruh_data(df, exclude_str="", include_str=""):
+    """
+    Handles all the logic: Filtering, Regex Matching, and Leaderboard Generation.
+    """
+    # 1. Clean data
+    processed_df = df.copy()
+    processed_df['Content'] = processed_df['Content'].astype(str)
+
+    # 2. Apply Inclusion/Exclusion Filters
+    if exclude_str:
+        processed_df = processed_df[~processed_df['Content'].str.contains(exclude_str, regex=False)]
+    if include_str:
+        processed_df = processed_df[processed_df['Content'].str.contains(include_str, regex=False)]
+
+    # 3. Define Regex: Starts with 'bruh' + space + number (allows text after)
+    pattern = r'(?i)^bruh\s+(\d+)'
+
+    # 4. Filter for Raw Bruhs
+    is_bruh_mask = processed_df['Content'].str.contains(pattern, na=False, regex=True)
+    raw_bruhs = processed_df[is_bruh_mask].copy()
+
+    # 5. Generate Leaderboard
+    leaderboard = raw_bruhs.groupby('Author').size().reset_index(name='Bruh Count')
+    leaderboard = leaderboard.sort_values(by='Bruh Count', ascending=False)
+
+    return leaderboard, processed_df, pattern
+
+def audit_user_messages(df, target_user, pattern, exclude_str, include_str):
+    """
+    Returns a styled dataframe showing exactly why messages were or weren't counted.
+    """
+    user_df = df[df['Author'] == target_user].copy()
     
-    try:
-        # Assuming the export is a CSV. Adjust to pd.read_json if it's JSON.
-        df = pd.read_csv(direct_url)
-        
-        # Regex: find "bruh" + space + any digits
-        # This will catch "bruh 1", "bruh 500", etc.
-        pattern = r'^bruh\s+(\d+)$'
-        
-        # Filter messages that match the pattern
-        # Replace 'content' and 'author' with the actual column names in your Dropbox file
-        df['is_bruh'] = df['content'].str.contains(pattern, case=False, na=False, regex=True)
-        bruh_df = df[df['is_bruh'] == True].copy()
-        
-        # Count bruhs per author
-        leaderboard = bruh_df.groupby('author').size().reset_index(name='Bruh Count')
-        return leaderboard.sort_values(by='Bruh Count', ascending=False)
+    # Check regex match
+    user_df['Matches Pattern'] = user_df['Content'].str.contains(pattern, na=False, regex=True)
     
-    except Exception as e:
-        st.error(f"Failed to fetch data: {e}")
-        return pd.DataFrame()
+    # Check filters
+    passed_ex = ~user_df['Content'].str.contains(exclude_str, regex=False) if exclude_str else True
+    passed_in = user_df['Content'].str.contains(include_str, regex=False) if include_str else True
+    user_df['Passed Filters'] = passed_ex & passed_in
+    
+    # Final Verdict
+    user_df['COUNTED?'] = user_df['Matches Pattern'] & user_df['Passed Filters']
+    
+    return user_df
