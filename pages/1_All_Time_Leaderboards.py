@@ -16,19 +16,37 @@ st.title("🏆 All-Time Raw Leaderboards")
 st.markdown("### *The Hall of Eternal Echoes*")
 
 # --- TOP 3 PODIUM ---
+# --- TOP 3 PODIUM ---
 lb = get_static_raw_leaderboard(df)
-top_3 = lb.head(3).reset_index()
+top_3 = lb.head(3).reset_index(drop=True) # drop=True prevents 'index' column issues
 
 if not top_3.empty:
     m1, m2, m3 = st.columns(3)
-    medals = [("🥇 Gold", "#FFD700"), ("🥈 Silver", "#C0C0C0"), ("🥉 Bronze", "#CD7F32")]
-    for i, col in enumerate([m1, m2, m3]):
-        if i < len(top_3):
-            label, color = medals[i]
-            col.markdown(f"<h3 style='text-align: center; color: {color};'>{label}</h3>", unsafe_allow_dict=True)
-            col.metric(top_3.loc[i, 'Author'], f"{int(top_3.loc[i, 'Command_Count'])} Commands")
-            col.caption(f"Total 'bruh' mentions: {int(top_3.loc[i, 'Total_Mentions'])}")
-
+    # Define the podium data clearly
+    medals = [
+        {"label": "🥇 Gold", "color": "#FFD700"},
+        {"label": "🥈 Silver", "color": "#C0C0C0"},
+        {"label": "🥉 Bronze", "color": "#CD7F32"}
+    ]
+    
+    cols = [m1, m2, m3]
+    
+    for i in range(len(top_3)):
+        col = cols[i]
+        medal = medals[i]
+        user_row = top_3.iloc[i]
+        
+        with col:
+            # FIX: Changed unsafe_allow_dict to unsafe_allow_html
+            st.markdown(
+                f"<h3 style='text-align: center; color: {medal['color']};'>{medal['label']}</h3>", 
+                unsafe_allow_html=True
+            )
+            st.metric(
+                label=str(user_row['Author']), 
+                value=f"{int(user_row['Command_Count'])} Cmds"
+            )
+            st.caption(f"Total 'bruh' mentions: {int(user_row['Total_Mentions'])}")
 st.divider()
 
 # --- MAIN TABLE ---
