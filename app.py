@@ -81,11 +81,22 @@ if live_file_time and st.session_state['current_file_time']:
 # UI Columns
 m1, m2, m3 = st.columns([1, 1.2, 0.8])
 
-with m1:
-    file_time = st.session_state['current_file_time']
-    st.metric("Data File Time", file_time.strftime("%H:%M UTC"))
-    st.caption("Modified time of loaded file")
+# --- CALCULATE TIME DIFFERENCE ---
+now = datetime.now(timezone.utc)
+file_time = st.session_state['current_file_time']
+diff = now - file_time
 
+# Break down the timedelta
+days = diff.days
+hours, remainder = divmod(diff.seconds, 3600)
+minutes, seconds = divmod(remainder, 60)
+
+# Create a clean string for the display
+time_ago_str = f"{days}d {hours}h {minutes}m {seconds}s ago"
+
+with m1:
+    st.metric("Last Data Update", time_ago_str)
+    st.caption(f"Reflected: {file_time.strftime('%H:%M:%S UTC')}")
 with m2:
     if is_stale:
         st.warning("🔄 New Data Detected")
