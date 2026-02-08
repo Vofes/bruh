@@ -10,7 +10,7 @@ from app import load_data
 from src.raw_leaderboard_logic import get_static_raw_leaderboard, run_debug_audit
 from src.guide_loader import render_markdown_guide
 
-st.set_page_config(page_title="The Archive of Honor", page_icon="🏆", layout="wide")
+st.set_page_config(page_title="All Time Leaderboards", page_icon="🏆", layout="wide")
 
 st.title("🏆 All-Time Leaderboards")
 df = load_data()
@@ -24,7 +24,7 @@ with tab_raw:
     with st.expander("❓ How are Raw Bruhs counted?"):
         render_markdown_guide("Raw_AllTime_Leaderboard_Guide.md")
 
-    st.markdown("### *The Hall of Eternal Echoes*")
+    st.markdown("### *The Raw Leaderboards*")
     
     # Get Data
     lb = get_static_raw_leaderboard(df)
