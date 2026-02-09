@@ -56,8 +56,8 @@ with tab_raw:
             hide_index=True,
             column_config={
                 "Rank": st.column_config.NumberColumn("Rank", format="#%d"),
-                "bruh-er": "User",
-                "Raw Bruhs": "Raw Bruhs",
+                "Author": "User",
+                "Command_Count": "Raw Bruhs",
                 "Bruh_Percentage": st.column_config.NumberColumn("Density", format="%.3f%%"),
                 "Total_Mentions": "Any 'Bruh' Mention"
             }
