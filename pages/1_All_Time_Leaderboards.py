@@ -63,31 +63,31 @@ with tab_raw:
             }
         )
 
-else:
-        # Analytics View
-        st.subheader("📊 Community Distribution")
+    else:
+            # Analytics View
+            st.subheader("📊 Community Distribution")
         
-        st.info("Users below the threshold will be grouped into 'Others'.")
+            st.info("Users below the threshold will be grouped into 'Others'.")
         
         # Updated Range: 0.25% to 2.0%
-        chart_threshold = st.slider(
-            "Min Density for Chart (%)", 
-            min_value=0.250, 
-            max_value=2.000, 
-            value=0.500, # Default starting point
-            step=0.001, 
-            format="%.3f%%"
-        )
+            chart_threshold = st.slider(
+                "Min Density for Chart (%)", 
+                min_value=0.250, 
+                max_value=2.000, 
+                value=0.500, # Default starting point
+                step=0.001, 
+                format="%.3f%%"
+            )
         
-        c_left, c_right = st.columns([2, 1])
-        with c_left:
+            c_left, c_right = st.columns([2, 1])
+            with c_left:
             # This now correctly bundles everyone below threshold into "Others"
-            fig = get_bruh_pie_chart(full_lb, chart_threshold)
-            st.plotly_chart(fig, use_container_width=True)
+                fig = get_bruh_pie_chart(full_lb, chart_threshold)
+                st.plotly_chart(fig, use_container_width=True)
         
-        with c_right:
-            st.metric("Global Raw Bruhs", f"{int(full_lb['Command_Count'].sum()):,}")
-            st.metric("Total Server Users", len(full_lb))
+            with c_right:
+                st.metric("Global Raw Bruhs", f"{int(full_lb['Command_Count'].sum()):,}")
+                st.metric("Total Server Users", len(full_lb))
 
 
 # --- TAB 2: VALID LEADERBOARD ---
