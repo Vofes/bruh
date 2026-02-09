@@ -56,8 +56,8 @@ with tab_raw:
             hide_index=True,
             column_config={
                 "Rank": st.column_config.NumberColumn("Rank", format="#%d"),
-                "Author": "User",
-                "Command_Count": "Raw Bruhs",
+                "bruh-er": "User",
+                "Raw Bruhs": "Raw Bruhs",
                 "Bruh_Percentage": st.column_config.NumberColumn("Density", format="%.3f%%"),
                 "Total_Mentions": "Any 'Bruh' Mention"
             }
@@ -87,7 +87,7 @@ with tab_raw:
         
             with c_right:
                 st.metric("Global Raw Bruhs", f"{int(full_lb['Command_Count'].sum()):,}")
-                st.metric("Total Server Users", len(full_lb))
+                st.metric("Total bruh-ers", len(full_lb))
 
 
 # --- TAB 2: VALID LEADERBOARD ---
