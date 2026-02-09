@@ -43,8 +43,8 @@ def get_bruh_pie_chart(lb_df, threshold):
     # 4. Create the final dataset for the chart
     if others_count > 0:
         others_row = pd.DataFrame({
-            'Author': ['Others (Below Threshold)'], 
-            'Command_Count': [others_count],
+            'bruh-er': ['Others (Below Threshold)'], 
+            'Raw_Bruh_Count': [others_count],
             'Bruh_Percentage': [below_thresh['Bruh_Percentage'].sum()]
         })
         chart_data = pd.concat([above_thresh, others_row], ignore_index=True)
