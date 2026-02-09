@@ -71,6 +71,8 @@ with tab_raw:
                 st.caption(f"Density: {row['Bruh_Percentage']:.3f}% | Mentions: {int(row['Total_Mentions']):,}")
 
     st.divider()
+
+
     
     # E. MAIN TABLE
     st.dataframe(
@@ -93,6 +95,46 @@ with tab_valid:
     st.write("Specific 'Valid' guide and anti-spam rankings coming soon.")
 
 st.divider()
+
+
+# ... (Keep existing imports) ...
+import plotly.express as px
+
+with tab_raw:
+    with st.expander("❓ How are Raw Bruhs counted?"):
+        render_markdown_guide("Raw_AllTime_Leaderboard_Guide.md")
+
+    st.markdown("### *The Raw Leaderboards*")
+
+    # SUB-NAVIGATION for Raw Tab
+    view_mode = st.radio("Select View:", ["🏆 Rankings", "📊 Analytics"], horizontal=True)
+
+    lb_data = get_static_raw_leaderboard(df)
+
+    if view_mode == "🏆 Rankings":
+        # ... (Insert your existing Slider, Podium, and Dataframe code here) ...
+        # Ensure you use 'lb_data' as the source
+        st.write("Displaying Table View...") # Placeholder for your existing code
+        
+    else:
+        st.subheader("📈 Community Analytics")
+        
+        col_left, col_right = st.columns([2, 1])
+        
+        with col_left:
+            # INTERACTIVE PIE CHART
+            from src.raw_leaderboard_logic import get_bruh_pie_chart
+            pie_fig = get_bruh_pie_chart(lb_data)
+            st.plotly_chart(pie_fig, use_container_width=True)
+            
+        with col_right:
+            # TOTAL COMMUNITY STATS
+            total_bruhs = lb_data['Command_Count'].sum()
+            total_users = len(lb_data)
+            st.metric("Total Community Bruhs", f"{total_bruhs:,}")
+            st.metric("Active Bruh-ers", total_users)
+            st.info("Hover over the chart to see specific counts and percentages!")
+
 
 # --- 3. SECURE SYSTEM ACCESS (Audit Tools) ---
 with st.expander("🔐 System Access & Debug Tools"):
