@@ -30,17 +30,26 @@ def get_static_raw_leaderboard(df):
     return stats.sort_values(by='Command_Count', ascending=False)
 
 def get_bruh_pie_chart(lb_df, threshold):
-    """Generates an interactive donut chart filtered by the user's slider threshold."""
-    # Apply the slider filter only for the chart
-    chart_data = lb_df[lb_df['Bruh_Percentage'] >= threshold].copy()
+    """Generates an interactive donut chart based on slider threshold."""
+    # 1. Identify who is ABOVE the threshold
+    above_thresh = lb_df[lb_df['Bruh_Percentage'] >= threshold].copy()
     
-    # If the filter leaves too many people, we still group tiny slices into 'Others' 
-    # for visual clarity, but only after the user's threshold is met.
-    if len(chart_data) > 15:
-        top_slice = chart_data.head(15).copy()
-        others_count = chart_data.iloc[15:]['Command_Count'].sum()
-        others_row = pd.DataFrame({'Author': ['Others'], 'Command_Count': [others_count]})
-        chart_data = pd.concat([top_slice, others_row], ignore_index=True)
+    # 2. Identify who is BELOW the threshold
+    below_thresh = lb_df[lb_df['Bruh_Percentage'] < threshold].copy()
+    
+    # 3. Calculate the sum of 'Raw Bruhs' for those below threshold
+    others_count = below_thresh['Command_Count'].sum()
+    
+    # 4. Create the final dataset for the chart
+    if others_count > 0:
+        others_row = pd.DataFrame({
+            'Author': ['Others (Below Threshold)'], 
+            'Command_Count': [others_count],
+            'Bruh_Percentage': [below_thresh['Bruh_Percentage'].sum()]
+        })
+        chart_data = pd.concat([above_thresh, others_row], ignore_index=True)
+    else:
+        chart_data = above_thresh
 
     fig = px.pie(
         chart_data, 
@@ -48,11 +57,12 @@ def get_bruh_pie_chart(lb_df, threshold):
         names='Author',
         hole=0.4,
         color_discrete_sequence=px.colors.qualitative.Pastel,
-        title=f"Community Distribution (Users > {threshold}% Density)"
+        title=f"Community Bruh Distribution (Threshold: {threshold}%)"
     )
     fig.update_traces(textposition='inside', textinfo='percent+label')
     fig.update_layout(margin=dict(t=40, b=0, l=0, r=0))
     return fig
+
 
 def run_debug_audit(df, target_user, exclude_str, include_str, show_counted):
     user_df = df[df['Author'] == target_user].copy()
@@ -69,3 +79,7 @@ def run_debug_audit(df, target_user, exclude_str, include_str, show_counted):
         user_df = user_df[user_df['Matches Pattern'] == False]
     
     return user_df.tail(500)
+
+
+
+
