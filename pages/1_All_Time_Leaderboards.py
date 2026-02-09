@@ -25,15 +25,30 @@ with tab_raw:
         render_markdown_guide("Raw_AllTime_Leaderboard_Guide.md")
 
     st.markdown("### *The Raw Leaderboards*")
+
+    # A. THE SLIDER (Filter based on % of total server messages)
+    st.write("#### 🎚️ Population Filter")
+    threshold = st.slider(
+        "Minimum Bruh Density (%)", 
+        min_value=0.000, 
+        max_value=5.000, 
+        value=0.100, 
+        step=0.001,
+        format="%.3f%%",
+        help="Filters out users who haven't contributed at least this % of the total 'bruhs' in the database."
+    )
+
+    # B. GET DATA & APPLY FILTER
+    full_lb = get_static_raw_leaderboard(df)
     
-    # Get Data
-    lb = get_static_raw_leaderboard(df)
+    # Filter by percentage threshold
+    lb = full_lb[full_lb['Bruh_Percentage'] >= threshold].copy()
     
-    # Add Rank Column (Based on Command_Count)
+    # C. RANKING (Based on Command_Count)
     lb = lb.sort_values(by='Command_Count', ascending=False).reset_index(drop=True)
     lb.insert(0, 'Rank', range(1, len(lb) + 1))
 
-    # Podium Logic
+    # D. PODIUM LOGIC
     top_3 = lb.head(3)
     if not top_3.empty:
         m1, m2, m3 = st.columns(3)
@@ -53,11 +68,11 @@ with tab_raw:
                     unsafe_allow_html=True
                 )
                 st.metric(label="Raw Count", value=f"{int(row['Command_Count']):,}")
-                st.caption(f"Total 'bruh' mentions: {int(row['Total_Mentions']):,}")
+                st.caption(f"Density: {row['Bruh_Percentage']:.3f}% | Mentions: {int(row['Total_Mentions']):,}")
 
     st.divider()
     
-    # Main Table with Rank
+    # E. MAIN TABLE
     st.dataframe(
         lb, 
         use_container_width=True, 
@@ -65,17 +80,17 @@ with tab_raw:
         column_config={
             "Rank": st.column_config.NumberColumn("Rank", format="#%d"),
             "Author": "Legend Name",
-            "Command_Count": "Bruh [Number] Count",
+            "Command_Count": st.column_config.NumberColumn("Bruh [Number] Count", format="%d"),
+            "Bruh_Percentage": st.column_config.NumberColumn("Density", format="%.3f%%"),
             "Total_Mentions": "Any 'Bruh' Mention"
         }
     )
 
 # --- TAB 2: VALID LEADERBOARD ---
 with tab_valid:
-    # Future tab-specific guide could go here
     st.header("⚖️ Validated Hall")
     st.info("### 🏗️ Under Development")
-    st.write("Specific 'Valid' guide and rankings coming soon.")
+    st.write("Specific 'Valid' guide and anti-spam rankings coming soon.")
 
 st.divider()
 
@@ -98,7 +113,7 @@ with st.expander("🔐 System Access & Debug Tools"):
 
         if target_user:
             audit_df = run_debug_audit(df, target_user, ex_filter, in_filter, show_counted)
-            st.write(f"Showing filtered results for {target_user}:")
+            st.write(f"Showing filtered results for {target_user} (Capped at last 500):")
             st.dataframe(audit_df, use_container_width=True)
             
             csv = audit_df.to_csv(index=False).encode('utf-8')
