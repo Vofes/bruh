@@ -7,158 +7,103 @@ root = Path(__file__).parents[1]
 sys.path.append(str(root))
 
 from app import load_data
-from src.raw_leaderboard_logic import get_static_raw_leaderboard, run_debug_audit
+from src.raw_leaderboard_logic import get_static_raw_leaderboard, run_debug_audit, get_bruh_pie_chart
 from src.guide_loader import render_markdown_guide
 
-st.set_page_config(page_title="All Time Leaderboards", page_icon="🏆", layout="wide")
+st.set_page_config(page_title="The Archive of Honor", page_icon="🏆", layout="wide")
 
 st.title("🏆 All-Time Leaderboards")
 df = load_data()
 
-# --- 2. TAB NAVIGATION ---
+# --- 2. MAIN TABS ---
 tab_raw, tab_valid = st.tabs(["🥇 Raw Leaderboard", "⚖️ Valid Bruh Count"])
 
 # --- TAB 1: RAW LEADERBOARD ---
 with tab_raw:
-    # Tab-Specific Guide
+    # 1. Guide at top
     with st.expander("❓ How are Raw Bruhs counted?"):
         render_markdown_guide("Raw_AllTime_Leaderboard_Guide.md")
 
-    st.markdown("### *The Raw Leaderboards*")
-
-    # A. THE SLIDER (Filter based on % of total server messages)
-    st.write("#### 🎚️ Population Filter")
-    threshold = st.slider(
-        "Minimum Bruh Density (%)", 
-        min_value=0.000, 
-        max_value=5.000, 
-        value=0.100, 
-        step=0.001,
-        format="%.3f%%",
-        help="Filters out users who haven't contributed at least this % of the total 'bruhs' in the database."
-    )
-
-    # B. GET DATA & APPLY FILTER
-    full_lb = get_static_raw_leaderboard(df)
-    
-    # Filter by percentage threshold
-    lb = full_lb[full_lb['Bruh_Percentage'] >= threshold].copy()
-    
-    # C. RANKING (Based on Command_Count)
-    lb = lb.sort_values(by='Command_Count', ascending=False).reset_index(drop=True)
-    lb.insert(0, 'Rank', range(1, len(lb) + 1))
-
-    # D. PODIUM LOGIC
-    top_3 = lb.head(3)
-    if not top_3.empty:
-        m1, m2, m3 = st.columns(3)
-        medals = [
-            {"icon": "🥇", "color": "#FFD700"},
-            {"icon": "🥈", "color": "#C0C0C0"},
-            {"icon": "🥉", "color": "#CD7F32"}
-        ]
-        
-        cols = [m1, m2, m3]
-        for i in range(len(top_3)):
-            with cols[i]:
-                meta = medals[i]
-                row = top_3.iloc[i]
-                st.markdown(
-                    f"<h2 style='text-align: center; color: {meta['color']};'>{meta['icon']} {row['Author']}</h2>", 
-                    unsafe_allow_html=True
-                )
-                st.metric(label="Raw Count", value=f"{int(row['Command_Count']):,}")
-                st.caption(f"Density: {row['Bruh_Percentage']:.3f}% | Mentions: {int(row['Total_Mentions']):,}")
-
+    # 2. View Switcher at the top
+    view_mode = st.radio("Select View Type:", ["🏆 Rankings Table", "📊 Analytics Graph"], horizontal=True)
     st.divider()
 
+    # Get data from Brain
+    full_lb = get_static_raw_leaderboard(df)
 
-    
-    # E. MAIN TABLE
-    st.dataframe(
-        lb, 
-        use_container_width=True, 
-        hide_index=True,
-        column_config={
-            "Rank": st.column_config.NumberColumn("Rank", format="#%d"),
-            "Author": "Legend Name",
-            "Command_Count": st.column_config.NumberColumn("Bruh [Number] Count", format="%d"),
-            "Bruh_Percentage": st.column_config.NumberColumn("Density", format="%.3f%%"),
-            "Total_Mentions": "Any 'Bruh' Mention"
-        }
-    )
+    if view_mode == "🏆 Rankings Table":
+        # Table shows EVERYONE (Threshold doesn't apply here)
+        lb_display = full_lb.copy()
+        lb_display = lb_display.sort_values(by='Command_Count', ascending=False).reset_index(drop=True)
+        lb_display.insert(0, 'Rank', range(1, len(lb_display) + 1))
+
+        # Podium for the top 3
+        top_3 = lb_display.head(3)
+        if not top_3.empty:
+            m1, m2, m3 = st.columns(3)
+            medals = [{"c": "#FFD700", "i": "🥇"}, {"c": "#C0C0C0", "i": "🥈"}, {"c": "#CD7F32", "i": "🥉"}]
+            for i in range(len(top_3)):
+                with [m1, m2, m3][i]:
+                    row = top_3.iloc[i]
+                    st.markdown(f"<h2 style='text-align: center; color: {medals[i]['c']};'>{medals[i]['i']} {row['Author']}</h2>", unsafe_allow_html=True)
+                    st.metric("Raw Bruhs", f"{int(row['Command_Count']):,}")
+                    st.caption(f"Density: {row['Bruh_Percentage']:.3f}%")
+
+        st.write("### Full Standings")
+        st.dataframe(
+            lb_display, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Rank": st.column_config.NumberColumn("Rank", format="#%d"),
+                "Author": "User",
+                "Command_Count": "Raw Bruhs",
+                "Bruh_Percentage": st.column_config.NumberColumn("Density", format="%.3f%%"),
+                "Total_Mentions": "Any 'Bruh' Mention"
+            }
+        )
+
+    else:
+        # Analytics View
+        st.subheader("📊 Community Distribution")
+        
+        # Threshold Slider ONLY appears here and ONLY affects the Pie Chart
+        st.info("Adjust the slider to filter the chart. The table remains unaffected.")
+        chart_threshold = st.slider("Min Density for Chart (%)", 0.000, 2.000, 0.100, 0.001, format="%.3f%%")
+        
+        c_left, c_right = st.columns([2, 1])
+        with c_left:
+            fig = get_bruh_pie_chart(full_lb, chart_threshold)
+            st.plotly_chart(fig, use_container_width=True)
+        with c_right:
+            st.metric("Global Raw Bruhs", f"{int(full_lb['Command_Count'].sum()):,}")
+            st.metric("Total Server Users", len(full_lb))
+            st.write("---")
+            st.caption("Hover over segments to see exact counts per User.")
 
 # --- TAB 2: VALID LEADERBOARD ---
 with tab_valid:
     st.header("⚖️ Validated Hall")
-    st.info("### 🏗️ Under Development")
-    st.write("Specific 'Valid' guide and anti-spam rankings coming soon.")
+    st.info("🏗️ Under Development: Anti-spam filters coming soon.")
 
 st.divider()
 
-
-# ... (Keep existing imports) ...
-import plotly.express as px
-
-with tab_raw:
-    with st.expander("❓ How are Raw Bruhs counted?"):
-        render_markdown_guide("Raw_AllTime_Leaderboard_Guide.md")
-
-    st.markdown("### *The Raw Leaderboards*")
-
-    # SUB-NAVIGATION for Raw Tab
-    view_mode = st.radio("Select View:", ["🏆 Rankings", "📊 Analytics"], horizontal=True)
-
-    lb_data = get_static_raw_leaderboard(df)
-
-    if view_mode == "🏆 Rankings":
-        # ... (Insert your existing Slider, Podium, and Dataframe code here) ...
-        # Ensure you use 'lb_data' as the source
-        st.write("Displaying Table View...") # Placeholder for your existing code
-        
-    else:
-        st.subheader("📈 Community Analytics")
-        
-        col_left, col_right = st.columns([2, 1])
-        
-        with col_left:
-            # INTERACTIVE PIE CHART
-            from src.raw_leaderboard_logic import get_bruh_pie_chart
-            pie_fig = get_bruh_pie_chart(lb_data)
-            st.plotly_chart(pie_fig, use_container_width=True)
-            
-        with col_right:
-            # TOTAL COMMUNITY STATS
-            total_bruhs = lb_data['Command_Count'].sum()
-            total_users = len(lb_data)
-            st.metric("Total Community Bruhs", f"{total_bruhs:,}")
-            st.metric("Active Bruh-ers", total_users)
-            st.info("Hover over the chart to see specific counts and percentages!")
-
-
-# --- 3. SECURE SYSTEM ACCESS (Audit Tools) ---
+# --- 3. SECURE SYSTEM ACCESS ---
 with st.expander("🔐 System Access & Debug Tools"):
-    pwd_input = st.text_input("Enter Master Password", type="password")
-    
-    if pwd_input == st.secrets["MPASSWORD"]:
+    pwd = st.text_input("Master Password", type="password")
+    if pwd == st.secrets["MPASSWORD"]:
         st.success("Access Granted")
+        col1, col2, col3 = st.columns(3)
+        with col1: ex = st.text_input("Exclusion Filter", value="---")
+        with col2: inc = st.text_input("Inclusion Filter")
+        with col3: sc = st.checkbox("Show Counted", value=True)
         
-        c1, c2, c3 = st.columns([1, 1, 1])
-        with c1:
-            ex_filter = st.text_input("Debug Exclusion", value="---")
-        with c2:
-            in_filter = st.text_input("Debug Inclusion")
-        with c3:
-            show_counted = st.checkbox("Show successfully counted messages", value=True)
-
-        target_user = st.selectbox("Select User to Audit", options=[""] + sorted(df['Author'].unique().tolist()))
-
+        user_list = sorted(df['Author'].unique().tolist())
+        target_user = st.selectbox("Audit User", options=[""] + user_list)
+        
         if target_user:
-            audit_df = run_debug_audit(df, target_user, ex_filter, in_filter, show_counted)
-            st.write(f"Showing filtered results for {target_user} (Capped at last 500):")
+            audit_df = run_debug_audit(df, target_user, ex, inc, sc)
             st.dataframe(audit_df, use_container_width=True)
-            
-            csv = audit_df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Filtered Audit CSV", data=csv, file_name=f"{target_user}_audit.csv")
-    elif pwd_input:
-        st.error("Incorrect Password")
+            st.download_button("📥 Download Filtered CSV", audit_df.to_csv(index=False), f"{target_user}_audit.csv")
+    elif pwd:
+        st.error("Invalid Password")
