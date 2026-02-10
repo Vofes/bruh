@@ -3,26 +3,26 @@ import re
 import plotly.express as px
 
 def get_static_raw_leaderboard(df):
-    """Calculates counts and the % density relative to all messages in the DB."""
-    total_db_messages = len(df)
+    """Calculates counts and the % share of total BRUHS in the community."""
     df['Content'] = df['Content'].astype(str)
     
-    # 1. Regex Pattern: Starts with 'bruh [number]'
+    # 1. Regex Pattern
     cmd_pattern = r'(?i)^bruh\s+(\d+)'
     df['is_cmd'] = df['Content'].str.contains(cmd_pattern, na=False, regex=True)
-    
-    # 2. General Mention: Any 'bruh' anywhere
     df['is_mention'] = df['Content'].str.contains('bruh', case=False, na=False)
 
-    # 3. Aggregate by Author
+    # 2. Aggregate
     stats = df.groupby('Author').agg(
         Command_Count=('is_cmd', 'sum'),
         Total_Mentions=('is_mention', 'sum')
     ).reset_index()
     
-    # 4. Calculate Density (%)
-    if total_db_messages > 0:
-        stats['Bruh_Percentage'] = (stats['Command_Count'] / total_db_messages) * 100
+    # 3. THE FIX: Calculate total number of Raw Bruhs (Not total server messages)
+    total_raw_bruhs = stats['Command_Count'].sum()
+    
+    if total_raw_bruhs > 0:
+        # This gives the "Share of Bruhs" which is usually what people expect
+        stats['Bruh_Percentage'] = (stats['Command_Count'] / total_raw_bruhs) * 100
         stats['Bruh_Percentage'] = stats['Bruh_Percentage'].round(3)
     else:
         stats['Bruh_Percentage'] = 0.0
