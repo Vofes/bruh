@@ -19,12 +19,9 @@ df = load_data()
 tab_raw, tab_valid = st.tabs(["🥇 Raw Leaderboard", "⚖️ Valid Bruh Count"])
 
 # --- TAB 1: RAW LEADERBOARD ---
-with tab_raw:
-    with st.expander("❓ How are Raw Bruhs counted?"):
-        render_markdown_guide("Raw_AllTime_Leaderboard_Guide.md")
 
-    view_mode = st.radio("Select View Type:", ["🏆 Rankings Table", "📊 Analytics Graph"], horizontal=True)
-    st.divider()
+with tab_raw:
+    # ... (Guide and Switcher logic) ...
 
     full_lb = get_static_raw_leaderboard(df)
 
@@ -42,35 +39,29 @@ with tab_raw:
                     row = top_3.iloc[i]
                     st.markdown(f"<h2 style='text-align: center; color: {medals[i]['c']};'>{medals[i]['i']} {row['Author']}</h2>", unsafe_allow_html=True)
                     st.metric("Raw Bruhs", f"{int(row['Raw_Bruhs']):,}")
-                    st.caption(f"Purity: {row['Bruh_Purity']}% | Share: {row['Bruh_Share']}%")
+                    st.caption(f"Purity: {row['Bruh_Purity']}%")
 
         st.write("### Full Standings")
+        
+        # WE SET THE DEFAULT VISIBILITY HERE
         st.dataframe(
             lb_display, 
             use_container_width=True, 
             hide_index=True,
+            # This list defines what shows up BY DEFAULT and in what order
+            column_order=("Rank", "Author", "Raw_Bruhs", "Bruh_Purity", "Global_Share"),
             column_config={
                 "Rank": st.column_config.NumberColumn("Rank", format="#%d"),
                 "Author": "User",
-                "Raw_Bruhs": "Raw Bruhs",
-                "Total_Messages": "Total Messages (In Channel)",
-                "Bruh_Purity": st.column_config.NumberColumn("Bruh Purity", format="%.2f%%", help="What % of this user's messages in this channel are valid Bruh commands?"),
-                "Bru_Share": st.column_config.NumberColumn("Global Share", format="%.3f%%")
+                "Raw_Bruhs": st.column_config.NumberColumn("Raw Bruhs", format="%d"),
+                "Bruh_Purity": st.column_config.NumberColumn("Purity", format="%.2f%%"),
+                "Global_Share": st.column_config.NumberColumn("Share", format="%.3f%%"),
+                "Total_Mentions": st.column_config.NumberColumn("Total 'Bruh' Mentions", format="%d"),
+                "Total_Messages": st.column_config.NumberColumn("Total Channel Messages", format="%d")
             }
         )
+        st.caption("💡 Use the 'eye' icon in the table header to show hidden stats like Total Mentions.")
 
-    else:
-        st.subheader("📊 Community Distribution")
-        chart_threshold = st.slider("Min % Share for Chart", 0.250, 2.000, 0.500, 0.001, format="%.3f%%")
-        
-        c_left, c_right = st.columns([2, 1])
-        with c_left:
-            fig = get_bruh_pie_chart(full_lb, chart_threshold)
-            st.plotly_chart(fig, use_container_width=True)
-        with c_right:
-            st.metric("Global Raw Bruhs", f"{int(full_lb['Raw_Bruhs'].sum()):,}")
-            st.metric("Total Contributors", len(full_lb))
-            st.info("Purity measures how focused a user is on the Bruh command. Share measures how much of the server's total bruhs they own.")
 
 # --- TAB 2: VALID LEADERBOARD ---
 with tab_valid:
