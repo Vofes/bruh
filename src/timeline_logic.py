@@ -1,35 +1,41 @@
 import pandas as pd
 
-def get_timeline_data(df, top_x=10):
+def get_timeline_data(df, top_x=10, freq='D'):
+    """
+    freq: 'D' for Daily, 'W' for Weekly
+    """
     df = df.copy()
     df['Timestamp'] = pd.to_datetime(df['Timestamp'])
-    df['Date'] = df['Timestamp'].dt.date
     
     cmd_pattern = r'(?i)^bruh\s+(\d+)'
     df['is_cmd'] = df['Content'].str.contains(cmd_pattern, na=False, regex=True)
     
-    # 1. Identify Top X authors
-    full_counts = df[df['is_cmd']].groupby('Author')['is_cmd'].sum()
-    top_authors = full_counts.nlargest(top_x).index.tolist()
+    # 1. Filter only valid commands
+    bruh_df = df[df['is_cmd']].copy()
     
-    # 2. Create daily stats for EVERYONE
-    daily_all = df[df['is_cmd']].groupby(['Date', 'Author']).size().unstack(fill_value=0)
+    # 2. Identify Top X authors globally
+    top_authors = bruh_df.groupby('Author').size().nlargest(top_x).index.tolist()
     
-    # 3. Split into Top X and Others
-    main_df = daily_all[top_authors].copy()
-    others_cols = [c for c in daily_all.columns if c not in top_authors]
+    # 3. Create a helper column to group 'Others'
+    bruh_df['Chart_Group'] = bruh_df['Author'].apply(lambda x: x if x in top_authors else 'Others')
     
-    if others_cols:
-        main_df['Others'] = daily_all[others_cols].sum(axis=1)
+    # 4. Resample by Date and Group
+    # Set timestamp as index for resampling
+    bruh_df = bruh_df.set_index('Timestamp')
     
-    # 4. Reindex to fill missing dates
-    all_dates = pd.date_range(start=main_df.index.min(), end=main_df.index.max()).date
-    main_df = main_df.reindex(all_dates, fill_value=0).rename_axis('Date').reset_index()
+    # Group by Frequency ('D' or 'W') and the Chart_Group
+    timeline = bruh_df.groupby([pd.Grouper(freq=freq), 'Chart_Group']).size().unstack(fill_value=0)
     
-    # 5. Calculate Cumulative version
-    cumulative_df = main_df.set_index('Date').cumsum().reset_index()
+    # 5. Ensure 'Others' exists as a column even if Top X covers everyone
+    if 'Others' not in timeline.columns:
+        timeline['Others'] = 0
+
+    # 6. Sort columns: Top Authors first, then Others
+    ordered_cols = top_authors + ['Others']
+    timeline = timeline[ordered_cols]
     
-    # Return Top X + 'Others' in the name list
-    display_names = top_authors + (['Others'] if others_cols else [])
+    # 7. Calculate Cumulative
+    incremental_df = timeline.reset_index()
+    cumulative_df = timeline.cumsum().reset_index()
     
-    return main_df, cumulative_df, display_names
+    return incremental_df, cumulative_df, ordered_cols
