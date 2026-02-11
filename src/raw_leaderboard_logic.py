@@ -2,38 +2,39 @@ import pandas as pd
 import re
 import plotly.express as px
 
+
+import pandas as pd
+import re
+import plotly.express as px
+
 def get_static_raw_leaderboard(df):
     """
     Calculates:
-    - Command_Count: Valid 'bruh [number]'
-    - Total_Channel_Messages: Total rows for this user in the CSV
-    - Bruh_Purity: (Valid Bruhs / Total Channel Messages) * 100
-    - Bruh_Percentage: Share of the total community bruh-pot.
+    - Raw_Bruhs: Valid 'bruh [number]'
+    - Total_Mentions: Any message containing 'bruh'
+    - Total_Messages: Every row for this user
+    - Bruh_Purity: (Raw_Bruhs / Total_Messages) * 100
+    - Global_Share: (Raw_Bruhs / Total_Bruhs_In_Server) * 100
     """
     df['Content'] = df['Content'].astype(str)
     
-    # 1. Regex Pattern for valid commands
+    # 1. Regex & Mentions logic
     cmd_pattern = r'(?i)^bruh\s+(\d+)'
     df['is_cmd'] = df['Content'].str.contains(cmd_pattern, na=False, regex=True)
+    df['is_mention'] = df['Content'].str.contains('bruh', case=False, na=False)
 
-    # 2. Aggregate counts per Author
-    # We count 'is_cmd' (the Trues) and 'Content' (size of all rows)
+    # 2. Aggregate
     stats = df.groupby('Author').agg(
         Raw_Bruhs=('is_cmd', 'sum'),
+        Total_Mentions=('is_mention', 'sum'),
         Total_Messages=('Content', 'count')
     ).reset_index()
     
-    # 3. Calculate "Bruh Purity" (User's Bruhs / User's Total Messages in this file)
-    stats['Bruh_Purity'] = (stats['Raw_Bruhs'] / stats['Total_Messages']) * 100
-    stats['Bruh_Purity'] = stats['Bruh_Purity'].round(2)
+    # 3. Math
+    stats['Bruh_Purity'] = (stats['Raw_Bruhs'] / stats['Total_Messages'] * 100).round(2)
     
-    # 4. Calculate "Global Share" (User's Bruhs / Total Bruhs in community)
-    total_community_bruhs = stats['Raw_Bruhs'].sum()
-    if total_community_bruhs > 0:
-        stats['Bruh_Share'] = (stats['Raw_Bruhs'] / total_community_bruhs) * 100
-        stats['Bruh_Share'] = stats['Bruh_Share'].round(3)
-    else:
-        stats['Bruh_Share'] = 0.0
+    total_raw = stats['Raw_Bruhs'].sum()
+    stats['Global_Share'] = (stats['Raw_Bruhs'] / total_raw * 100).round(3) if total_raw > 0 else 0.0
 
     return stats.sort_values(by='Raw_Bruhs', ascending=False)
 
