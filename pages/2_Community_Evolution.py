@@ -2,50 +2,62 @@ import streamlit as st
 import plotly.express as px
 from app import load_data
 from src.timeline_logic import get_timeline_data
+from src.guide_loader import render_markdown_guide
 
 st.set_page_config(page_title="Evolution", page_icon="📈", layout="wide")
 
 st.title("📈 Community Evolution")
 df = load_data()
 
-# --- Controls ---
-with st.sidebar:
-    st.header("Chart Settings")
-    top_n = st.slider("Number of Legends to track", 3, 15, 5)
-    chart_type = st.radio("Calculation Type", ["Cumulative (Running Total)", "Incremental (Daily Volume)"])
-    stack_mode = st.checkbox("100% Stacked (Relative Share)", value=False)
+# --- 2. MAIN TABS ---
+tab_raw, tab_valid = st.tabs(["🥇 Raw Evolution", "⚖️ Valid Evolution"])
 
-# --- Process Data ---
-daily, cumulative, top_authors = get_timeline_data(df, top_x=top_n)
-plot_df = cumulative if "Cumulative" in chart_type else daily
+with tab_raw:
+    # Load Guide
+    with st.expander("📖 Evolution Guide"):
+        render_markdown_guide("Raw_Community_Evolution_Guide.md")
 
-# --- Logic for 100% Stacked ---
-# Plotly uses 'groupnorm' to turn a normal stacked chart into a 100% stacked one.
-group_norm = 'percent' if stack_mode else None
+    # --- Controls (Now in Main Page) ---
+    c1, c2, c3 = st.columns([1, 1, 1])
+    with c1:
+        top_n = st.number_input("Track Top X People", min_value=0, max_value=50, value=10)
+    with c2:
+        chart_type = st.selectbox("Calculation Type", ["Cumulative (Running Total)", "Incremental (Daily Volume)"])
+    with c3:
+        stack_mode = st.toggle("100% Stacked (Relative Share)", value=False)
 
-# --- Visualization ---
-st.subheader(f"{chart_type} for Top {top_n} Users")
+    st.divider()
 
-# We need to melt the dataframe for Plotly Express
-melted_df = plot_df.melt(id_vars='Date', value_vars=top_authors, var_name='User', value_name='Bruhs')
+    # --- Process Data ---
+    daily, cumulative, display_names = get_timeline_data(df, top_x=top_n)
+    plot_df = cumulative if "Cumulative" in chart_type else daily
 
-fig = px.area(
-    melted_df, 
-    x='Date', 
-    y='Bruhs', 
-    color='User',
-    line_group='User',
-    groupnorm=group_norm,
-    title=f"Bruh Dominance Over Time ({'Percentage Share' if stack_mode else 'Counts'})",
-    color_discrete_sequence=px.colors.qualitative.Bold
-)
+    # Plotly Stack Logic
+    group_norm = 'percent' if stack_mode else None
 
-fig.update_layout(hovermode="x unified", yaxis_title="Share %" if stack_mode else "Count")
-st.plotly_chart(fig, use_container_width=True)
+    # Melt data for Plotly
+    melted_df = plot_df.melt(id_vars='Date', value_vars=display_names, var_name='User', value_name='Bruhs')
 
-# --- Summary Stats ---
-c1, c2 = st.columns(2)
-with c1:
-    st.info("💡 **Cumulative** shows who has the biggest 'Legacy'.")
-with c2:
-    st.info("💡 **100% Stacked** shows who was the most active during specific eras of the server.")
+    # --- Visualization ---
+    fig = px.area(
+        melted_df, 
+        x='Date', 
+        y='Bruhs', 
+        color='User',
+        groupnorm=group_norm,
+        title=f"The Rise and Fall of Bruh Dynasties",
+        color_discrete_sequence=px.colors.qualitative.Alphabet # Alphabet is better for up to 50 colors
+    )
+
+    fig.update_layout(
+        hovermode="x unified", 
+        yaxis_title="Share %" if stack_mode else "Count",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab_valid:
+    st.info("🏗️ Under Development - The Council is still verifying the historical archives.")
+
+st.divider()
