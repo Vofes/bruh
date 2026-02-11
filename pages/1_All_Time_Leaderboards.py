@@ -20,24 +20,19 @@ tab_raw, tab_valid = st.tabs(["🥇 Raw Leaderboard", "⚖️ Valid Bruh Count"]
 
 # --- TAB 1: RAW LEADERBOARD ---
 with tab_raw:
-    # 1. Guide at top
     with st.expander("❓ How are Raw Bruhs counted?"):
         render_markdown_guide("Raw_AllTime_Leaderboard_Guide.md")
 
-    # 2. View Switcher at the top
     view_mode = st.radio("Select View Type:", ["🏆 Rankings Table", "📊 Analytics Graph"], horizontal=True)
     st.divider()
 
-    # Get data from Brain
     full_lb = get_static_raw_leaderboard(df)
 
     if view_mode == "🏆 Rankings Table":
-        # Table shows EVERYONE (Threshold doesn't apply here)
-        lb_display = full_lb.copy()
-        lb_display = lb_display.sort_values(by='Command_Count', ascending=False).reset_index(drop=True)
+        lb_display = full_lb.copy().sort_values(by='Raw_Bruhs', ascending=False).reset_index(drop=True)
         lb_display.insert(0, 'Rank', range(1, len(lb_display) + 1))
 
-        # Podium for the top 3
+        # Podium
         top_3 = lb_display.head(3)
         if not top_3.empty:
             m1, m2, m3 = st.columns(3)
@@ -46,8 +41,8 @@ with tab_raw:
                 with [m1, m2, m3][i]:
                     row = top_3.iloc[i]
                     st.markdown(f"<h2 style='text-align: center; color: {medals[i]['c']};'>{medals[i]['i']} {row['Author']}</h2>", unsafe_allow_html=True)
-                    st.metric("Raw Bruhs", f"{int(row['Command_Count']):,}")
-                    st.caption(f"Density: {row['Bruh_Percentage']:.3f}%")
+                    st.metric("Raw Bruhs", f"{int(row['Raw_Bruhs']):,}")
+                    st.caption(f"Purity: {row['Bruh_Purity']}% | Share: {row['Bruh_Share']}%")
 
         st.write("### Full Standings")
         st.dataframe(
@@ -57,47 +52,33 @@ with tab_raw:
             column_config={
                 "Rank": st.column_config.NumberColumn("Rank", format="#%d"),
                 "Author": "User",
-                "Command_Count": "Raw Bruhs",
-                "Bruh_Percentage": st.column_config.NumberColumn("Density", format="%.3f%%"),
-                "Total_Mentions": "Any 'Bruh' Mention"
+                "Raw_Bruhs": "Raw Bruhs",
+                "Total_Messages": "Total Messages (In Channel)",
+                "Bruh_Purity": st.column_config.NumberColumn("Bruh Purity", format="%.2f%%", help="What % of this user's messages in this channel are valid Bruh commands?"),
+                "Bru_Share": st.column_config.NumberColumn("Global Share", format="%.3f%%")
             }
         )
 
     else:
-            # Analytics View
-            st.subheader("📊 Community Distribution")
+        st.subheader("📊 Community Distribution")
+        chart_threshold = st.slider("Min % Share for Chart", 0.250, 2.000, 0.500, 0.001, format="%.3f%%")
         
-            st.info("Users below the threshold will be grouped into 'Others'.")
-        
-        # Updated Range: 0.25% to 2.0%
-            chart_threshold = st.slider(
-                "Min Density for Chart (%)", 
-                min_value=0.250, 
-                max_value=2.000, 
-                value=0.500, # Default starting point
-                step=0.001, 
-                format="%.3f%%"
-            )
-        
-            c_left, c_right = st.columns([2, 1])
-            with c_left:
-            # This now correctly bundles everyone below threshold into "Others"
-                fig = get_bruh_pie_chart(full_lb, chart_threshold)
-                st.plotly_chart(fig, use_container_width=True)
-        
-            with c_right:
-                st.metric("Global Raw Bruhs", f"{int(full_lb['Command_Count'].sum()):,}")
-                st.metric("Total bruh-ers", len(full_lb))
-
+        c_left, c_right = st.columns([2, 1])
+        with c_left:
+            fig = get_bruh_pie_chart(full_lb, chart_threshold)
+            st.plotly_chart(fig, use_container_width=True)
+        with c_right:
+            st.metric("Global Raw Bruhs", f"{int(full_lb['Raw_Bruhs'].sum()):,}")
+            st.metric("Total Contributors", len(full_lb))
+            st.info("Purity measures how focused a user is on the Bruh command. Share measures how much of the server's total bruhs they own.")
 
 # --- TAB 2: VALID LEADERBOARD ---
 with tab_valid:
-    st.header("⚖️ Validated Hall")
-    st.info("🏗️ Under Development: Anti-spam filters coming soon.")
+    st.info("🏗️ Under Development")
 
 st.divider()
 
-# --- 3. SECURE SYSTEM ACCESS ---
+# --- 3. DEBUG TOOLS ---
 with st.expander("🔐 System Access & Debug Tools"):
     pwd = st.text_input("Master Password", type="password")
     if pwd == st.secrets["MPASSWORD"]:
@@ -114,5 +95,3 @@ with st.expander("🔐 System Access & Debug Tools"):
             audit_df = run_debug_audit(df, target_user, ex, inc, sc)
             st.dataframe(audit_df, use_container_width=True)
             st.download_button("📥 Download Filtered CSV", audit_df.to_csv(index=False), f"{target_user}_audit.csv")
-    elif pwd:
-        st.error("Invalid Password")
