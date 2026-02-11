@@ -63,6 +63,7 @@ with tab_raw:
         st.write("### Full Standings")
 
         # --- The Table with Default Visibility (The 'Eye' logic) ---
+        st.caption("💡 Use the 'eye' icon in the table header to show hidden stats like Total Mentions.")
         st.dataframe(
             lb_display, 
             use_container_width=True, 
@@ -80,7 +81,7 @@ with tab_raw:
                 "Total_Messages": st.column_config.NumberColumn("Total Messages", format="%d")
             }
         )
-        st.caption("💡 Use the 'eye' icon in the table header to show hidden stats like Total Mentions.")
+
 
     else:
         # --- Analytics View ---
