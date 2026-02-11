@@ -9,55 +9,55 @@ st.set_page_config(page_title="Evolution", page_icon="📈", layout="wide")
 st.title("📈 Community Evolution")
 df = load_data()
 
-# --- 2. MAIN TABS ---
 tab_raw, tab_valid = st.tabs(["🥇 Raw Evolution", "⚖️ Valid Evolution"])
 
 with tab_raw:
-    # Load Guide
     with st.expander("📖 Evolution Guide"):
         render_markdown_guide("Raw_Community_Evolution_Guide.md")
 
-    # --- Controls (Now in Main Page) ---
-    c1, c2, c3 = st.columns([1, 1, 1])
+    # --- UPDATED CONTROLS ---
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
     with c1:
-        top_n = st.number_input("Track Top X People", min_value=0, max_value=50, value=10)
+        top_n = st.number_input("Track Top X People", 0, 50, 10)
     with c2:
-        chart_type = st.selectbox("Calculation Type", ["Cumulative (Running Total)", "Incremental (Daily Volume)"])
+        # Added Weekly option
+        time_grain = st.selectbox("Time Grain", ["Daily", "Weekly"])
     with c3:
-        stack_mode = st.toggle("100% Stacked (Relative Share)", value=False)
+        chart_type = st.selectbox("Calculation", ["Cumulative (Running Total)", "Incremental (Volume)"])
+    with c4:
+        stack_mode = st.toggle("100% Stacked", value=False)
 
     st.divider()
 
-    # --- Process Data ---
-    daily, cumulative, display_names = get_timeline_data(df, top_x=top_n)
+    # --- PROCESS ---
+    freq_map = {"Daily": "D", "Weekly": "W"}
+    daily, cumulative, display_names = get_timeline_data(df, top_x=top_n, freq=freq_map[time_grain])
+    
     plot_df = cumulative if "Cumulative" in chart_type else daily
-
-    # Plotly Stack Logic
     group_norm = 'percent' if stack_mode else None
 
-    # Melt data for Plotly
-    melted_df = plot_df.melt(id_vars='Date', value_vars=display_names, var_name='User', value_name='Bruhs')
+    # Use 'Timestamp' because that's what the resampler returns
+    melted_df = plot_df.melt(id_vars='Timestamp', value_vars=display_names, var_name='User', value_name='Bruhs')
 
-    # --- Visualization ---
+    # --- VISUALIZATION ---
     fig = px.area(
         melted_df, 
-        x='Date', 
+        x='Timestamp', 
         y='Bruhs', 
         color='User',
         groupnorm=group_norm,
-        title=f"The Rise and Fall of Bruh Dynasties",
-        color_discrete_sequence=px.colors.qualitative.Alphabet # Alphabet is better for up to 50 colors
+        title=f"Evolution of the Bruh Meta ({time_grain} View)",
+        color_discrete_sequence=px.colors.qualitative.Alphabet
     )
 
     fig.update_layout(
-        hovermode="x unified", 
-        yaxis_title="Share %" if stack_mode else "Count",
+        hovermode="x unified",
+        xaxis_title="Timeline",
+        yaxis_title="Share %" if stack_mode else "Bruh Count",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     
     st.plotly_chart(fig, use_container_width=True)
 
 with tab_valid:
-    st.info("🏗️ Under Development - The Council is still verifying the historical archives.")
-
-st.divider()
+    st.info("🏗️ Under Development")
