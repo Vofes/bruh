@@ -18,6 +18,26 @@ df = load_data()
 # --- 2. MAIN TABS ---
 tab_raw, tab_valid = st.tabs(["🥇 Raw Leaderboard", "⚖️ Valid Bruh Count"])
 
+
+        # WE SET THE DEFAULT VISIBILITY HERE
+        st.dataframe(
+            lb_display, 
+            use_container_width=True, 
+            hide_index=True,
+            # This list defines what shows up BY DEFAULT and in what order
+            column_order=("Rank", "Author", "Raw_Bruhs", "Bruh_Purity", "Global_Share"),
+            column_config={
+                "Rank": st.column_config.NumberColumn("Rank", format="#%d"),
+                "Author": "User",
+                "Raw_Bruhs": st.column_config.NumberColumn("Raw Bruhs", format="%d"),
+                "Bruh_Purity": st.column_config.NumberColumn("Purity", format="%.2f%%"),
+                "Global_Share": st.column_config.NumberColumn("Share", format="%.3f%%"),
+                "Total_Mentions": st.column_config.NumberColumn("Total 'Bruh' Mentions", format="%d"),
+                "Total_Messages": st.column_config.NumberColumn("Total Channel Messages", format="%d")
+            }
+        )
+        st.caption("💡 Use the 'eye' icon in the table header to show hidden stats like Total Mentions.")
+
 # --- TAB 1: RAW LEADERBOARD ---
 
 with tab_raw:
@@ -43,24 +63,6 @@ with tab_raw:
 
         st.write("### Full Standings")
         
-        # WE SET THE DEFAULT VISIBILITY HERE
-        st.dataframe(
-            lb_display, 
-            use_container_width=True, 
-            hide_index=True,
-            # This list defines what shows up BY DEFAULT and in what order
-            column_order=("Rank", "Author", "Raw_Bruhs", "Bruh_Purity", "Global_Share"),
-            column_config={
-                "Rank": st.column_config.NumberColumn("Rank", format="#%d"),
-                "Author": "User",
-                "Raw_Bruhs": st.column_config.NumberColumn("Raw Bruhs", format="%d"),
-                "Bruh_Purity": st.column_config.NumberColumn("Purity", format="%.2f%%"),
-                "Global_Share": st.column_config.NumberColumn("Share", format="%.3f%%"),
-                "Total_Mentions": st.column_config.NumberColumn("Total 'Bruh' Mentions", format="%d"),
-                "Total_Messages": st.column_config.NumberColumn("Total Channel Messages", format="%d")
-            }
-        )
-        st.caption("💡 Use the 'eye' icon in the table header to show hidden stats like Total Mentions.")
 
 
 # --- TAB 2: VALID LEADERBOARD ---
