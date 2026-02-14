@@ -62,39 +62,43 @@ st.divider()
 # --- 3. EXECUTION ---
 if run:
     with st.spinner("Analyzing the bruh-chain history..."):
+        # Correctly calling the processor with the variables defined in the UI above
         res_m, res_s, found, last_val, unique_count = process_bruh_logic(
-                if run:
-                # Update the arguments here to match your UI variables
-                res_m, res_s, active_status, last_num, unique_count = process_bruh_logic(
-                    df, 
-                    start_bruh, 
-                    end_bruh, 
-                    jump_limit,      # Make sure this matches your input name
-                    filter_mode      # This replaces hide_invalid
-                )
+            df, 
+            start_bruh, 
+            end_bruh, 
+            jump_limit, 
+            filter_mode
+        )
     
-    # METRICS
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Final Chain Num", f"{last_val:,}" if found else "N/A")
-    m2.metric("Total Mistakes", f"{len(res_m):,}", delta_color="inverse")
-    m3.metric("Total Success Log", f"{len(res_s):,}")
-    m4.metric("Unique Successful", f"{unique_count:,}")
+        # METRICS (Now inside the 'if run' block so they only show when data exists)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Final Chain Num", f"{last_val:,}" if found else "N/A")
+        m2.metric("Total Mistakes", f"{len(res_m):,}", delta_color="inverse")
+        m3.metric("Total Success Log", f"{len(res_s):,}")
+        m4.metric("Unique Successful", f"{unique_count:,}")
 
-    st.divider()
+        st.divider()
 
-    # LAYOUT
-    if show_raw:
-        col_raw, col_res = st.columns([1, 1.2])
-        with col_raw:
-            render_raw_csv_view(df, int(v_start), int(v_end))
-        container = col_res
-    else:
-        container = st.container()
+        # LAYOUT
+        if show_raw:
+            col_raw, col_res = st.columns([1, 1.2])
+            with col_raw:
+                render_raw_csv_view(df, int(v_start), int(v_end))
+            container = col_res
+        else:
+            container = st.container()
 
-    with container:
-        st.subheader("📝 Complete Analysis Logs")
-        t1, t2 = st.tabs(["❌ Mistakes List", "✅ Success Log"])
-        with t1:
-            st.dataframe(res_m, use_container_width=True, hide_index=True)
-        with t2:
-            st.dataframe(res_s, use_container_width=True, hide_index=True)
+        with container:
+            st.subheader("📝 Complete Analysis Logs")
+            t1, t2 = st.tabs(["❌ Mistakes List", "✅ Success Log"])
+            with t1:
+                # Adding a little color to the 'Active' mistakes
+                if not res_m.empty:
+                    st.dataframe(res_m, use_container_width=True, hide_index=True)
+                else:
+                    st.success("No mistakes found for this filter mode! 🏆")
+            with t2:
+                st.dataframe(res_s, use_container_width=True, hide_index=True)
+else:
+    st.info("💡 Adjust the settings above and click 'Run Full Analysis' to begin.")    
