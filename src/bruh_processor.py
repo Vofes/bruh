@@ -19,6 +19,9 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
     active_status, last_valid_num, current_target = False, None, None
     recent_authors = []
     FIX_WINDOW = 4000 
+    
+    # We track what the target WAS before the chain went off the rails
+    pre_mistake_target = None 
 
     for idx, item in enumerate(bruh_rows):
         i, author, msg, found_num = item["index"], item["author"], item["msg"], item["num"]
@@ -29,6 +32,7 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
                 active_status, last_valid_num, current_target = True, found_num, found_num + 1
                 all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
                 recent_authors = [author]
+                pre_mistake_target = current_target
             continue
 
         lookahead = bruh_rows[idx+1 : idx+4]
@@ -41,9 +45,12 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition (0)", "Status": "Active"})
             continue
 
-        # --- 2. TARGET MATCH (A-3/Retro-Save Logic) ---
-        if found_num == current_target:
-            # 2-Person Rule Check
+        # --- 2. TARGET MATCH (Normal or Fix) ---
+        if found_num == current_target or (is_verified and found_num == pre_mistake_target):
+            
+            # If it's the pre_mistake_target, it's a FIX
+            is_fixing_move = (found_num == pre_mistake_target and found_num != current_target)
+            
             if author in recent_authors:
                 saved = False
                 for prev_idx in range(idx - 1, max(0, idx - 10), -1):
@@ -52,49 +59,37 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
                         all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT (Saved)"})
                         recent_authors = [author]
                         last_valid_num, current_target = found_num, found_num + 1
+                        if not is_fixing_move: pre_mistake_target = current_target
                         saved = True
                         break
                 if not saved:
                     all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule", "Status": "Active"})
-            else:
-                all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
-                last_valid_num, current_target = found_num, found_num + 1
-                recent_authors = [author]
-
-        # --- 3. VERIFIED JUMP / ROLLBACK (The Global Healer) ---
-        elif is_verified and abs(diff) <= max_jump:
-            base_reason = "Jump" if diff > 0 else "Rollback"
-            final_reason = f"{base_reason} ({diff:+})"
+                    continue # Don't update target if blocked by 2-person rule
             
-            # THE SEARCH: Is this move fixing a specific previous error?
-            is_fixing_move = False
-            fix_anchor_line = None
-
-            for m in reversed(all_mistakes):
-                if m["Line"] < i - FIX_WINDOW: break
-                if m["Status"] != "Active": continue
-                
-                m_match = pattern.match(m["Msg"])
-                if not m_match: continue
-                m_val = int(m_match.group(1))
-
-                # Logic: Rollback fixes Jump/2-Person | Jump fixes Rollback
-                check_fix_rb = (diff < 0 and ("Jump" in m["Reason"] or "2-Person" in m["Reason"]) and abs(found_num - m_val) <= 2)
-                check_fix_jp = (diff > 0 and "Rollback" in m["Reason"] and "Fixing" not in m["Reason"] and abs(found_num - m_val) <= 2)
-
-                if check_fix_rb or check_fix_jp:
-                    is_fixing_move = True
-                    fix_anchor_line = m["Line"]
-                    final_reason = f"Fixing {base_reason} ({diff:+})"
-                    break
-            
-            # THE SWEEP: If it's a fix, mark EVERYTHING between the anchor and now as Fixed
+            # Successful Move
             if is_fixing_move:
-                for mistake in all_mistakes:
-                    if fix_anchor_line <= mistake["Line"] < i:
-                        mistake["Status"] = f"Fixed (by {i})"
+                # MARK PREVIOUS AS FIXED
+                fix_reason = "Fixing Rollback" if diff < 0 else "Fixing Jump"
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{fix_reason} ({diff:+})", "Status": "Active"})
+                
+                # Sweep: Find the first Active mistake and mark everything from there to here as Fixed
+                for m in all_mistakes:
+                    if m["Status"] == "Active" and m["Line"] < i:
+                        m["Status"] = f"Fixed (by {i})"
+            
+            all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+            last_valid_num, current_target = found_num, found_num + 1
+            pre_mistake_target = current_target # Reset the anchor
+            recent_authors = [author]
 
-            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": final_reason, "Status": "Active"})
+        # --- 3. VERIFIED JUMP / ROLLBACK (Non-Fixing) ---
+        elif is_verified and abs(diff) <= max_jump:
+            # If this is the FIRST mistake in a while, remember what the target SHOULD have been
+            if pre_mistake_target == current_target:
+                pre_mistake_target = current_target 
+            
+            base_reason = "Jump" if diff > 0 else "Rollback"
+            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{base_reason} ({diff:+})", "Status": "Active"})
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             last_valid_num, current_target = found_num, found_num + 1
             recent_authors = [author]
