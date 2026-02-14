@@ -6,7 +6,6 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
     cols_m = ["Line", "Author", "Msg", "Reason", "Status"]
     cols_s = ["Line", "Author", "Msg", "Status"]
 
-    # --- 1. PRE-PROCESS ---
     bruh_rows = []
     for i, row in df.iterrows():
         try:
@@ -31,28 +30,22 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
                 recent_authors = [author]
             continue
 
-        # Lookahead: Verified by 3-person consensus
         lookahead = bruh_rows[idx+1 : idx+4]
         is_verified = len(lookahead) == 3 and all(lookahead[k]["num"] == found_num + k + 1 for k in range(3))
         diff = found_num - last_valid_num
 
-        # --- BRANCH A: TARGET MATCH ---
+        # --- 1. TARGET MATCH ---
         if found_num == current_target:
             if author in recent_authors:
-                # 2-Person Rule Violations are "Active" until fixed/verified
-                if is_verified:
-                    all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule", "Status": f"Fixed (Consensus by {lookahead[-1]['index']})"})
-                    all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
-                else:
-                    all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule", "Status": "Active"})
-                    continue # Wait for someone else to bruh
-            else:
-                all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+                # Still a mistake, but we'll mark it as Active so you can see it
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule", "Status": "Active"})
+                if not is_verified: continue # If not followed by others, don't move the chain
             
+            all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             last_valid_num, current_target = found_num, found_num + 1
             recent_authors = (recent_authors + [author])[-2:]
 
-        # --- BRANCH B: REPETITION ---
+        # --- 2. REPETITION & SWAPS ---
         elif found_num == last_valid_num:
             fixed_via_swap = False
             for m in reversed(all_mistakes):
@@ -65,22 +58,24 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
                         break
             
             if not fixed_via_swap and not hide_invalid:
-                # MARK AS STATIC (Not Active)
-                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A (Static)"})
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A"})
+            continue
 
-        # --- BRANCH C: JUMPS / ROLLBACKS ---
+        # --- 3. JUMPS / ROLLBACKS (STRICT) ---
         elif is_verified:
-            # Verified anomalies are mistakes, but they are technically 'Fixed' because the chain moved on
-            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Jump/Rollback ({diff:+})", "Status": "Fixed (Consensus)"})
+            # These are errors that the community followed. They stay "Active" as mistakes.
+            reason = "Jump" if diff > 0 else "Rollback"
+            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Active"})
+            
+            # But the chain physically moves on
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             last_valid_num, current_target = found_num, found_num + 1
             recent_authors = [author]
 
-        # --- BRANCH D: INVALID ---
+        # --- 4. INVALID ---
         else:
             if not hide_invalid:
-                # MARK AS STATIC (Not Active)
-                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Invalid", "Status": "N/A (Static)"})
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Invalid ({diff:+})", "Status": "N/A"})
 
     res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
     res_s = pd.DataFrame(all_successes) if all_successes else pd.DataFrame(columns=cols_s)
