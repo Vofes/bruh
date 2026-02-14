@@ -1,97 +1,73 @@
 import streamlit as st
 import pandas as pd
-import requests
 import os
 import sys
-from datetime import datetime, timezone
 
-# Ensure the app can find the 'src' folder
+# --- SETUP ---
 sys.path.append(os.getcwd())
-
-try:
-    from src.bruh_processor import process_bruh_logic
-    from src.raw_viewer import render_raw_csv_view 
-    from src.guide_loader import render_markdown_guide
-except ModuleNotFoundError as e:
-    st.error(f"🚨 Logic modules not found: {e}")
-    st.stop()
-
-# --- CONFIGURATION ---
-DB_LINK = st.secrets["DROPBOXLINK"]
+from app import load_data # Using your central loader
+from src.bruh_processor import process_bruh_logic
+from src.raw_viewer import render_raw_csv_view 
+from src.guide_loader import render_markdown_guide
 
 st.set_page_config(page_title="Bruh-BotCheck", layout="wide")
 
-# --- DATA LOADER (Self-Healing) ---
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_data_independently():
-    """Downloads CSV from Dropbox if it's missing from session state."""
-    df = pd.read_csv(DB_LINK, header=None, dtype=str, low_memory=False)
-    # Map columns based on sync logic: ID, Author, Timestamp, Content
-    df.columns = ['MessageID', 'Author', 'Timestamp', 'Content'] + [f'col_{i}' for i in range(4, len(df.columns))]
-    df['Timestamp'] = pd.to_datetime(df['Timestamp'], utc=True, errors='coerce')
-    df = df.dropna(subset=['Timestamp']).sort_values(by='Timestamp', ascending=True)
-    return df
-
-# Check if data exists in session state; if not, fetch it.
-if 'df' not in st.session_state:
-    with st.status("📡 Data not in memory. Establishing connection...", expanded=True) as status:
-        st.write("Downloading latest chat logs from Dropbox...")
-        try:
-            st.session_state['df'] = load_data_independently()
-            status.update(label="✅ Data Synchronized!", state="complete", expanded=False)
-        except Exception as e:
-            st.error(f"📋 Critical Error: Could not retrieve data. {e}")
-            st.stop()
-
-df = st.session_state['df']
-
-# --- SIDEBAR SETTINGS ---
-with st.sidebar:
-    st.header("⚙️ Global BotCheck")
-    # Defaulting to your specified starting point
-    start_bruh = st.number_input("Starting Bruh #", value=0)
-    end_bruh = st.number_input("Ending Bruh # (0=End)", value=0)
-    jump_limit = st.number_input("Max Jump Allowed (In most cases better if left unchanged)", value=100)
-    hide_invalid = st.checkbox("Hide 'No Consensus' Bruhs", value=False)
-    
-    st.divider()
-    st.subheader("Raw Viewer Settings")
-    show_raw = st.checkbox("Enable Raw Viewer", value=False)
-    # Adjusted defaults to likely row ranges for a 450k+ dataset
-    v_start = st.number_input("View Start Row", value=len(df)-1000 if len(df) > 1000 else 0)
-    v_end = st.number_input("View End Row", value=len(df))
-    
-    run = st.button("🚀 Run Analysis", use_container_width=True)
-
-# --- MAIN INTERFACE ---
 st.title("🤖 Bot Detection Engine")
 
-# --- SHOW GUIDE WHEN NOT RUNNING ---
-if not run:
+# --- 1. THE GUIDE (Dropdown) ---
+with st.expander("📖 How to use the BotCheck Engine"):
     render_markdown_guide("botcheck_guide.md")
 
+# --- 2. COMMAND CENTER (Main Page Controls) ---
+st.subheader("⚙️ Analysis Configuration")
+with st.container(border=True):
+    # Row 1: Chain Settings
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        start_bruh = st.number_input("Starting Bruh #", value=0)
+    with c2:
+        end_bruh = st.number_input("Ending Bruh # (0=End)", value=0)
+    with c3:
+        jump_limit = st.number_input("Max Jump Allowed", value=100)
+    with c4:
+        hide_invalid = st.checkbox("Hide 'No Consensus'", value=False)
+
+    # Row 2: Viewer Settings
+    v1, v2, v3, v4 = st.columns([1, 1, 1, 1.5])
+    df = load_data() # Using central loader
+    
+    with v1:
+        show_raw = st.toggle("Enable Raw Viewer", value=False)
+    with v2:
+        v_start = st.number_input("View Start Row", value=len(df)-1000 if len(df) > 1000 else 0)
+    with v3:
+        v_end = st.number_input("View End Row", value=len(df))
+    with v4:
+        st.write("") # Spacer
+        run = st.button("🚀 Run Full Analysis", use_container_width=True, type="primary")
+
+st.divider()
+
+# --- 3. EXECUTION ---
 if run:
-    # 1. BRAIN: Global Analysis
-    with st.spinner("Analyzing the bruh-chain..."):
+    with st.spinner("Analyzing the bruh-chain history..."):
         res_m, res_s, found, last_val, unique_count = process_bruh_logic(
             df, start_bruh, end_bruh, jump_limit, hide_invalid
         )
     
-    # 2. METRICS
-    st.header("📊 Global Analysis")
+    # METRICS
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Final Chain Num", f"{last_val:,}" if found else "N/A")
-    m2.metric("Total Mistakes", f"{len(res_m):,}")
+    m2.metric("Total Mistakes", f"{len(res_m):,}", delta_color="inverse")
     m3.metric("Total Success Log", f"{len(res_s):,}")
     m4.metric("Unique Successful", f"{unique_count:,}")
 
     st.divider()
 
-    # 3. VIEW: UI Layout
+    # LAYOUT
     if show_raw:
         col_raw, col_res = st.columns([1, 1.2])
         with col_raw:
-            # Displays the Author and Content columns specifically
             render_raw_csv_view(df, int(v_start), int(v_end))
         container = col_res
     else:
