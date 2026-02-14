@@ -18,9 +18,6 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
     all_mistakes, all_successes = [], []
     active_status, last_valid_num, current_target = False, None, None
     recent_authors = [] 
-    
-    real_world_anchor = None  
-    jump_active = False       
     target_to_line_map = {} 
 
     for idx, item in enumerate(bruh_rows):
@@ -30,98 +27,84 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
         if not active_status:
             if found_num == start_num:
                 active_status, last_valid_num, current_target = True, found_num, found_num + 1
-                real_world_anchor, recent_authors = author, [author]
                 all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+                recent_authors = [author] # Reset on start
             continue
 
         lookahead = bruh_rows[idx+1 : idx+4]
         is_verified = len(lookahead) == 3 and all(lookahead[k]["num"] == found_num + k + 1 for k in range(3))
         diff = found_num - last_valid_num
+        
+        history_list = sorted(list(target_to_line_map.keys()))
+        recovery_anchor = history_list[0] if history_list else current_target
+        debug_info = f"Targ:{current_target}|Anch:{recovery_anchor}|Verif:{is_verified}"
 
-        # --- PRIORITY 1: THE FIXER (Recovery & Smart Re-Entry) ---
-        # Logic: If verified AND (in history OR matching the original real-world target)
-        if is_verified and (found_num in target_to_line_map or (jump_active and found_num == current_target)):
-            # If it's a history match, use that origin; otherwise it's a re-entry to the main line
-            origin_line = target_to_line_map.get(found_num, i)
-            
-            stitch_target = real_world_anchor
-            recent_authors = [stitch_target, author] if stitch_target and stitch_target != author else [author]
-            
-            label = "Fixer (RB)" if diff < 0 else "Fixer (JP)"
-            all_mistakes.append({
-                "Line": i, "Author": author, "Msg": msg, 
-                "Reason": f"{label} ({diff:+})", "Status": "Fixer", 
-                "Debug": f"STITCHED_TO:{stitch_target}"
-            })
-            
-            # Mark ALL active mistakes between the first break and this fix as Fixed
-            for m in all_mistakes:
-                if m["Status"] == "Active" and origin_line <= m["Line"] < i:
-                    m["Status"] = f"Fixed (by {i})"
-            
-            # Clear target history for this branch
-            target_to_line_map = {t: l for t, l in target_to_line_map.items() if l < origin_line}
+        # --- STEP 1: SURGICAL FIXER ---
+        if is_verified and found_num in target_to_line_map:
+            if found_num != current_target:
+                origin_line = target_to_line_map[found_num]
+                reason = "Fixer (RB)" if diff < 0 else "Fixer (JP)"
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Fixer", "Debug": debug_info})
+                
+                for m in all_mistakes:
+                    if m["Status"] == "Active" and origin_line <= m["Line"] < i:
+                        m["Status"] = f"Fixed (by {i})"
+                
+                target_to_line_map = {t: l for t, l in target_to_line_map.items() if l < origin_line}
+                
+                # IMPORTANT: Reset recent authors to ONLY the person who fixed it
+                recent_authors = [author] 
+            else:
+                all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+                if found_num in target_to_line_map: del target_to_line_map[found_num]
+                recent_authors = (recent_authors + [author])[-2:]
+
             last_valid_num, current_target = found_num, found_num + 1
-            real_world_anchor = author 
-            jump_active = False
-            continue 
+            continue
 
-        # --- PRIORITY 2: REPETITIONS & SWAPS ---
+        # --- STEP 2: REPETITION ---
         if found_num == last_valid_num:
             fixed_via_swap = False
-            checks = all_mistakes[-3:] if len(all_mistakes) >= 3 else all_mistakes
-            for m in reversed(checks):
+            for m in reversed(all_mistakes):
                 if m["Reason"] == "2-Person Rule" and m["Status"] == "Active":
                     if author != m["Author"]:
                         m["Status"] = f"Fixed (Swap by {i})"
                         all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
-                        recent_authors = [recent_authors[0], author] if len(recent_authors) > 1 else [author]
+                        # Update authors on successful swap
+                        recent_authors = (recent_authors[:-1] + [author])[-2:]
                         fixed_via_swap = True
                         break
             if not fixed_via_swap:
-                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A", "Debug": f"Auths:{recent_authors}"})
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A", "Debug": debug_info})
             continue
 
-        # --- PRIORITY 3: TARGET MATCH ---
+        # --- STEP 3: TARGET MATCH ---
         if found_num == current_target:
             if author in recent_authors:
-                all_mistakes.append({
-                    "Line": i, "Author": author, "Msg": msg, 
-                    "Reason": "2-Person Rule", "Status": "Active", 
-                    "Debug": f"BlockedBy:{recent_authors}"
-                })
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule", "Status": "Active", "Debug": debug_info})
+                # If they broke the rule, we don't update current_target unless verified
                 if not is_verified: continue 
             
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             last_valid_num, current_target = found_num, found_num + 1
-            if not jump_active: real_world_anchor = author
             recent_authors = (recent_authors + [author])[-2:]
-            continue
 
-        # --- PRIORITY 4: JUMPS (Isolation Start) ---
+        # --- STEP 4: JUMP/ROLLBACK (New Mistake) ---
         elif is_verified:
-            # Check if we are already in a jump; if so, don't overwrite the very first origin line
-            if current_target not in target_to_line_map:
-                target_to_line_map[current_target] = i
-            
-            label = "Jump" if diff > 0 else "Rollback"
-            jump_active = True
-            
-            all_mistakes.append({
-                "Line": i, "Author": author, "Msg": msg, 
-                "Reason": f"{label} ({diff:+})", "Status": "Active", 
-                "Debug": f"GOD_ANCHOR_FROZEN_AS:{real_world_anchor}"
-            })
+            target_to_line_map[current_target] = i
+            reason = "Jump" if diff > 0 else "Rollback"
+            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Active", "Debug": debug_info})
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             
             last_valid_num, current_target = found_num, found_num + 1
-            recent_authors = [author] 
-            continue
+            # Reset memory for the new "fake" timeline branch
+            recent_authors = [author]
 
-        # --- PRIORITY 5: INVALID ---
+        # --- STEP 5: INVALID ---
         else:
-            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Invalid ({diff:+})", "Status": "N/A", "Debug": f"Targ:{current_target}"})
+            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Invalid ({diff:+})", "Status": "N/A", "Debug": debug_info})
 
+    # (Filtering logic remains same...)
     res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
     if filter_mode == 2: res_m = res_m[res_m["Status"] != "N/A"]
     elif filter_mode == 3: res_m = res_m[res_m["Status"] == "Active"]
