@@ -18,6 +18,9 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
     all_mistakes, all_successes = [], []
     active_status, last_valid_num, current_target = False, None, None
     recent_authors = [] 
+    
+    # Track the "Ghost Target" (The number we should be on if no mistakes happened)
+    ghost_target = None 
 
     for idx, item in enumerate(bruh_rows):
         i, author, msg, found_num = item["index"], item["author"], item["msg"], item["num"]
@@ -28,56 +31,72 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
                 active_status, last_valid_num, current_target = True, found_num, found_num + 1
                 all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
                 recent_authors = [author]
+                ghost_target = current_target
             continue
 
         lookahead = bruh_rows[idx+1 : idx+4]
         is_verified = len(lookahead) == 3 and all(lookahead[k]["num"] == found_num + k + 1 for k in range(3))
         diff = found_num - last_valid_num
 
-        # --- 1. TARGET MATCH ---
+        # --- BRANCH 1: THE TIMELINE FIXER ---
+        # If this message is verified AND it matches the 'Ghost Target' (where we were supposed to be)
+        if is_verified and found_num == ghost_target and found_num != current_target:
+            # 1. Identify the 'Fixer' message
+            fix_reason = "Timeline Fixer (Rollback)" if diff < 0 else "Timeline Fixer (Jump)"
+            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{fix_reason} ({diff:+})", "Status": "Active"})
+            
+            # 2. SWEEP: Mark all previous active mistakes as 'Fixed'
+            for m in all_mistakes:
+                if m["Status"] == "Active" and m["Line"] < i:
+                    m["Status"] = f"Fixed (by savior {i})"
+            
+            # 3. Update Chain
+            all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+            last_valid_num, current_target = found_num, found_num + 1
+            ghost_target = current_target
+            recent_authors = (recent_authors + [author])[-2:]
+            continue
+
+        # --- BRANCH 2: TARGET MATCH ---
         if found_num == current_target:
             if author in recent_authors:
-                # Still a mistake, but we'll mark it as Active so you can see it
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule", "Status": "Active"})
-                if not is_verified: continue # If not followed by others, don't move the chain
+                if not is_verified: continue 
             
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             last_valid_num, current_target = found_num, found_num + 1
+            # If we are on the 'clean' path, ghost target follows current target
+            if ghost_target is not None: ghost_target = current_target
             recent_authors = (recent_authors + [author])[-2:]
 
-        # --- 2. REPETITION & SWAPS ---
-        elif found_num == last_valid_num:
-            fixed_via_swap = False
-            for m in reversed(all_mistakes):
-                if m["Reason"] == "2-Person Rule" and m["Status"] == "Active":
-                    if author != m["Author"]:
-                        m["Status"] = f"Fixed (Swap by {i})"
-                        all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
-                        recent_authors = (recent_authors[:-1] + [author])[-2:]
-                        fixed_via_swap = True
-                        break
-            
-            if not fixed_via_swap and not hide_invalid:
-                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A"})
-            continue
-
-        # --- 3. JUMPS / ROLLBACKS (STRICT) ---
-        elif is_verified:
-            # These are errors that the community followed. They stay "Active" as mistakes.
+        # --- BRANCH 3: VERIFIED JUMP/ROLLBACK (Creates a 'Ghost' timeline) ---
+        elif is_verified and abs(diff) <= max_jump:
             reason = "Jump" if diff > 0 else "Rollback"
             all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Active"})
             
-            # But the chain physically moves on
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             last_valid_num, current_target = found_num, found_num + 1
+            # Note: We do NOT update ghost_target here. It stays at the 'true' missing number.
             recent_authors = [author]
 
-        # --- 4. INVALID ---
+        # --- BRANCH 4: NOISE (Repeats/Invalids) ---
         else:
-            if not hide_invalid:
+            if found_num == last_valid_num:
+                # 2-Person Rule Swap logic (A-3, B-3)
+                fixed_via_swap = False
+                for m in reversed(all_mistakes):
+                    if m["Reason"] == "2-Person Rule" and m["Status"] == "Active":
+                        if author != m["Author"]:
+                            m["Status"] = f"Fixed (Swap by {i})"
+                            all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+                            recent_authors = (recent_authors[:-1] + [author])[-2:]
+                            fixed_via_swap = True
+                            break
+                if not fixed_via_swap and not hide_invalid:
+                    all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A"})
+            elif not hide_invalid:
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Invalid ({diff:+})", "Status": "N/A"})
 
     res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
     res_s = pd.DataFrame(all_successes) if all_successes else pd.DataFrame(columns=cols_s)
-    
     return res_m, res_s, active_status, last_valid_num, len(res_s[res_s["Status"] == "CORRECT"])
