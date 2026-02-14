@@ -18,8 +18,9 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
     all_mistakes, all_successes = [], []
     active_status, last_valid_num, current_target = False, None, None
     recent_authors = [] 
-    # This now stores all skipped targets that haven't been 'fixed' yet
-    target_history = set() 
+    
+    # We now map: {TargetNumber: LineNumberThatCreatedTheGap}
+    target_to_line_map = {} 
 
     for idx, item in enumerate(bruh_rows):
         i, author, msg, found_num = item["index"], item["author"], item["msg"], item["num"]
@@ -36,23 +37,28 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
         is_verified = len(lookahead) == 3 and all(lookahead[k]["num"] == found_num + k + 1 for k in range(3))
         diff = found_num - last_valid_num
         
-        recovery_anchor = min(target_history) if target_history else current_target
-        debug_info = f"Targ:{current_target}|Anch:{recovery_anchor}|Hist:{sorted(list(target_history))[:2]}|Verif:{is_verified}"
+        history_list = sorted(list(target_to_line_map.keys()))
+        recovery_anchor = history_list[0] if history_list else current_target
+        debug_info = f"Targ:{current_target}|Anch:{recovery_anchor}|Hist:{history_list[:2]}|Verif:{is_verified}"
 
-        # --- STEP 1: FIXER CHECK ---
-        if is_verified and (found_num in target_history or found_num == recovery_anchor):
-            is_fixer = (found_num != current_target)
-            
-            if is_fixer:
+        # --- STEP 1: SURGICAL FIXER ---
+        if is_verified and found_num in target_to_line_map:
+            if found_num != current_target:
+                # Which line created this specific target?
+                origin_line = target_to_line_map[found_num]
                 reason = "Fixer (RB)" if diff < 0 else "Fixer (JP)"
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Fixer", "Debug": debug_info})
+                
+                # ONLY mark the origin line and everything AFTER it as fixed
                 for m in all_mistakes:
-                    if m["Status"] == "Active" and m["Line"] < i:
+                    if m["Status"] == "Active" and origin_line <= m["Line"] < i:
                         m["Status"] = f"Fixed (by {i})"
-                # CLEAR history because we've returned to a valid point
-                target_history.clear()
+                
+                # Remove this target and any targets that were created AFTER the origin line
+                target_to_line_map = {t: l for t, l in target_to_line_map.items() if l < origin_line}
             else:
                 all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+                if found_num in target_to_line_map: del target_to_line_map[found_num]
 
             last_valid_num, current_target = found_num, found_num + 1
             recent_authors = (recent_authors + [author])[-2:]
@@ -60,7 +66,6 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
 
         # --- STEP 2: REPETITION ---
         if found_num == last_valid_num:
-            # (Swap logic remains same...)
             fixed_via_swap = False
             for m in reversed(all_mistakes):
                 if m["Reason"] == "2-Person Rule" and m["Status"] == "Active":
@@ -74,7 +79,7 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A", "Debug": debug_info})
             continue
 
-        # --- STEP 3: REGULAR TARGET MATCH ---
+        # --- STEP 3: TARGET MATCH ---
         if found_num == current_target:
             if author in recent_authors:
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule", "Status": "Active", "Debug": debug_info})
@@ -84,10 +89,10 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
             last_valid_num, current_target = found_num, found_num + 1
             recent_authors = (recent_authors + [author])[-2:]
 
-        # --- STEP 4: JUMP/ROLLBACK ---
+        # --- STEP 4: JUMP/ROLLBACK (New Mistake) ---
         elif is_verified:
-            # We add the expected target to history because it was SKIPPED
-            target_history.add(current_target)
+            # Map this missing target to the line that just caused the break
+            target_to_line_map[current_target] = i
             
             reason = "Jump" if diff > 0 else "Rollback"
             all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Active", "Debug": debug_info})
@@ -101,7 +106,6 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
             if not hide_invalid:
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Invalid ({diff:+})", "Status": "N/A", "Debug": debug_info})
 
-    # (Final filtering remains same...)
     res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
     if hide_invalid: res_m = res_m[res_m["Status"] != "N/A"]
     res_s = pd.DataFrame(all_successes) if all_successes else pd.DataFrame(columns=cols_s)
