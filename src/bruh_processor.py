@@ -1,7 +1,6 @@
 import pandas as pd
 import re
 
-# filter_mode: 1 = All, 2 = No Consensus (Hide N/A), 3 = Only Active
 def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
     pattern = re.compile(r'(?i)^bruh\s+(\d+)')
     cols_m = ["Line", "Author", "Msg", "Reason", "Status", "Debug"]
@@ -29,7 +28,7 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
             if found_num == start_num:
                 active_status, last_valid_num, current_target = True, found_num, found_num + 1
                 all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
-                recent_authors = [author]
+                recent_authors = [author] # Reset on start
             continue
 
         lookahead = bruh_rows[idx+1 : idx+4]
@@ -52,12 +51,15 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
                         m["Status"] = f"Fixed (by {i})"
                 
                 target_to_line_map = {t: l for t, l in target_to_line_map.items() if l < origin_line}
+                
+                # IMPORTANT: Reset recent authors to ONLY the person who fixed it
+                recent_authors = [author] 
             else:
                 all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
                 if found_num in target_to_line_map: del target_to_line_map[found_num]
+                recent_authors = (recent_authors + [author])[-2:]
 
             last_valid_num, current_target = found_num, found_num + 1
-            recent_authors = (recent_authors + [author])[-2:]
             continue
 
         # --- STEP 2: REPETITION ---
@@ -68,6 +70,7 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
                     if author != m["Author"]:
                         m["Status"] = f"Fixed (Swap by {i})"
                         all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+                        # Update authors on successful swap
                         recent_authors = (recent_authors[:-1] + [author])[-2:]
                         fixed_via_swap = True
                         break
@@ -79,34 +82,31 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
         if found_num == current_target:
             if author in recent_authors:
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule", "Status": "Active", "Debug": debug_info})
+                # If they broke the rule, we don't update current_target unless verified
                 if not is_verified: continue 
             
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             last_valid_num, current_target = found_num, found_num + 1
             recent_authors = (recent_authors + [author])[-2:]
 
-        # --- STEP 4: JUMP/ROLLBACK ---
+        # --- STEP 4: JUMP/ROLLBACK (New Mistake) ---
         elif is_verified:
             target_to_line_map[current_target] = i
             reason = "Jump" if diff > 0 else "Rollback"
             all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Active", "Debug": debug_info})
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+            
             last_valid_num, current_target = found_num, found_num + 1
+            # Reset memory for the new "fake" timeline branch
             recent_authors = [author]
 
         # --- STEP 5: INVALID ---
         else:
             all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Invalid ({diff:+})", "Status": "N/A", "Debug": debug_info})
 
-    # --- THE 3 OPTIONS FILTER ---
+    # (Filtering logic remains same...)
     res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
-    
-    if filter_mode == 2:
-        # Show all but no consensus (Hide N/A rows)
-        res_m = res_m[res_m["Status"] != "N/A"]
-    elif filter_mode == 3:
-        # Show only Non-Fixed / Active
-        res_m = res_m[res_m["Status"] == "Active"]
-        
+    if filter_mode == 2: res_m = res_m[res_m["Status"] != "N/A"]
+    elif filter_mode == 3: res_m = res_m[res_m["Status"] == "Active"]
     res_s = pd.DataFrame(all_successes) if all_successes else pd.DataFrame(columns=cols_s)
     return res_m, res_s, active_status, last_valid_num, len(res_s[res_s["Status"] == "CORRECT"])
