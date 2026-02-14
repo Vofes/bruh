@@ -118,19 +118,49 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
             last_valid_author = author
             recent_authors = (recent_authors + [author])[-2:]
 
-        # --- STEP 4: JUMP/ROLLBACK (Timeline Break) ---
-        elif is_verified and abs(diff) <= max_jump:
-            # We record the target we SHOULD have had to history
-            target_to_line_map[current_target] = i
-            
-            reason = "Jump" if diff > 0 else "Rollback"
-            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Active", "Debug": debug_info})
-            
-            all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
-            last_valid_num, current_target = found_num, found_num + 1
-            # We do NOT update last_valid_author here; we keep the person from BEFORE the jump
-            recent_authors = [author]
+# --- STEP 1: SURGICAL FIXER (Timeline Stitching) ---
+        is_fixer_step = False
+        if is_verified and found_num in target_to_line_map:
+            is_fixer_step = True
+            if found_num != current_target:
+                origin_line = target_to_line_map[found_num]
+                recent_authors = [last_valid_author, author] if last_valid_author else [author]
+                
+                reason = "Fixer (RB)" if diff < 0 else "Fixer (JP)"
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Fixer", "Debug": debug_info})
+                
+                for m in all_mistakes:
+                    if m["Status"] == "Active" and origin_line <= m["Line"] < i:
+                        m["Status"] = f"Fixed (by {i})"
+                
+                target_to_line_map = {t: l for t, l in target_to_line_map.items() if l < origin_line}
+            else:
+                all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+                if found_num in target_to_line_map: del target_to_line_map[found_num]
+                recent_authors = (recent_authors + [author])[-2:]
 
+            last_valid_num, current_target = found_num, found_num + 1
+            last_valid_author = author
+            continue
+
+        # --- STEP 2: REPETITION CHECK ---
+        # Added 'and not is_fixer_step' to prevent Fixers being called Repetitions
+        if found_num == last_valid_num and not is_fixer_step:
+            fixed_via_swap = False
+            # Only attempt a swap if there's an active 2-Person Rule mistake to fix
+            for m in reversed(all_mistakes):
+                if m["Reason"] == "2-Person Rule" and m["Status"] == "Active":
+                    # Ensure the person swapping isn't the same person who made the mistake
+                    if author != m["Author"]:
+                        m["Status"] = f"Fixed (Swap by {i})"
+                        all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+                        recent_authors = (recent_authors[:-1] + [author])[-2:]
+                        fixed_via_swap = True
+                        break
+            
+            if not fixed_via_swap:
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A", "Debug": debug_info})
+            continue
         # --- STEP 5: INVALID / NO CONSENSUS ---
         else:
             all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Invalid ({diff:+})", "Status": "N/A", "Debug": debug_info})
