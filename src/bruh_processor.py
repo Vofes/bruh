@@ -28,9 +28,7 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
     
     # Author Tracking
     recent_authors = [] 
-    last_known_good_author = None # The person valid BEFORE a jump
-    
-    # Timeline Tracking
+    last_known_good_author = None 
     target_to_line_map = {} 
 
     for idx, item in enumerate(bruh_rows):
@@ -78,7 +76,68 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
             last_known_good_author = author
             continue 
 
-        # --- PRIORITY 2: REPETITIONS & SWAPS (Immediate Only) ---
+        # --- PRIORITY 2: REPETITIONS & SWAPS ---
         if found_num == last_valid_num and not is_fixer:
             fixed_via_swap = False
-            # Only swap if the mistake happened within
+            for m in reversed(all_mistakes[-5:]): 
+                if m["Reason"] == "2-Person Rule" and m["Status"] == "Active":
+                    if author != m["Author"]:
+                        m["Status"] = f"Fixed (Swap by {i})"
+                        all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+                        recent_authors = [recent_authors[0], author] if len(recent_authors) > 1 else [author]
+                        fixed_via_swap = True
+                        break
+            
+            if not fixed_via_swap:
+                all_mistakes.append({
+                    "Line": i, "Author": author, "Msg": msg, 
+                    "Reason": "Repetition", "Status": "N/A", "Debug": "NoSwap"
+                })
+            continue
+
+        # --- PRIORITY 3: TARGET MATCH ---
+        if found_num == current_target:
+            if author in recent_authors:
+                all_mistakes.append({
+                    "Line": i, "Author": author, "Msg": msg, 
+                    "Reason": "2-Person Rule", "Status": "Active", 
+                    "Debug": f"BlockedBy:{recent_authors}"
+                })
+                if not is_verified: continue 
+            
+            all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+            last_valid_num, current_target = found_num, found_num + 1
+            last_known_good_author = author
+            recent_authors = (recent_authors + [author])[-2:]
+            continue
+
+        # --- PRIORITY 4: VERIFIED BREAKS ---
+        if is_verified:
+            target_to_line_map[current_target] = i
+            label = "Jump" if diff > 0 else "Rollback"
+            all_mistakes.append({
+                "Line": i, "Author": author, "Msg": msg, 
+                "Reason": f"{label} ({diff:+})", "Status": "Active", "Debug": "Break"
+            })
+            all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+            last_valid_num, current_target = found_num, found_num + 1
+            recent_authors = [author] 
+            continue
+
+        # --- PRIORITY 5: INVALID ---
+        all_mistakes.append({
+            "Line": i, "Author": author, "Msg": msg, 
+            "Reason": f"Invalid ({diff:+})", "Status": "N/A", "Debug": f"Targ:{current_target}"
+        })
+
+    # --- FILTERING ---
+    res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
+    if filter_mode == 2:
+        res_m = res_m[res_m["Status"] != "N/A"]
+    elif filter_mode == 3:
+        res_m = res_m[res_m["Status"] == "Active"]
+        
+    res_s = pd.DataFrame(all_successes) if all_successes else pd.DataFrame(columns=cols_s)
+    unique_successful = len(res_s[res_s["Status"] == "CORRECT"])
+    
+    return res_m, res_s, active_status, last_valid_num, unique_successful
