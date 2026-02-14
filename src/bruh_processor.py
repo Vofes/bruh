@@ -35,22 +35,16 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
         lookahead = bruh_rows[idx+1 : idx+4]
         is_verified = len(lookahead) == 3 and all(lookahead[k]["num"] == found_num + k + 1 for k in range(3))
         diff = found_num - last_valid_num
-        
-        # DEBUG: Now shows who the bot remembers at this exact line
         debug_info = f"Targ:{current_target}|Auths:{recent_authors}"
 
-        # --- PRIORITY 1: THE FIXER CHECK ---
-        # We check this FIRST. If 333400 is in our "needed" map, we fix it NOW.
+        # --- PRIORITY 1: TIMELINE RECOVERY (The Fixer) ---
         if is_verified and found_num in target_to_line_map:
             origin_line = target_to_line_map[found_num]
+            recent_authors = [last_known_good_author, author] if last_known_good_author else [author]
             
-            # THE HARD RESET: Banish the jump-authors (like _wynaut_) from memory
-            if last_known_good_author and last_known_good_author != author:
-                recent_authors = [last_known_good_author, author]
-            else:
-                recent_authors = [author]
-            
-            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Fixer ({diff:+})", "Status": "Fixer", "Debug": debug_info})
+            # Restore the descriptive labels (Jump vs Rollback)
+            label = "Fixer (RB)" if diff < 0 else "Fixer (JP)"
+            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{label} ({diff:+})", "Status": "Fixer", "Debug": debug_info})
             
             for m in all_mistakes:
                 if m["Status"] == "Active" and origin_line <= m["Line"] < i:
@@ -61,12 +55,24 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
             last_known_good_author = author
             continue 
 
-        # --- PRIORITY 2: REPETITION ---
+        # --- PRIORITY 2: REPETITIONS & SWAPS ---
         if found_num == last_valid_num:
-            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A", "Debug": debug_info})
+            fixed_via_swap = False
+            # Look for a 2-Person Rule mistake that this message might be "swapping" to fix
+            for m in reversed(all_mistakes):
+                if m["Reason"] == "2-Person Rule" and m["Status"] == "Active":
+                    if author != m["Author"]:
+                        m["Status"] = f"Fixed (Swap by {i})"
+                        all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+                        recent_authors = (recent_authors[:-1] + [author])[-2:]
+                        fixed_via_swap = True
+                        break
+            
+            if not fixed_via_swap:
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A", "Debug": debug_info})
             continue
 
-        # --- PRIORITY 3: TARGET MATCH ---
+        # --- PRIORITY 3: TARGET MATCH (Normal Chain) ---
         if found_num == current_target:
             if author in recent_authors:
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule", "Status": "Active", "Debug": debug_info})
@@ -74,13 +80,15 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
             
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             last_valid_num, current_target = found_num, found_num + 1
-            last_known_good_author, recent_authors = author, (recent_authors + [author])[-2:]
+            last_known_good_author = author
+            recent_authors = (recent_authors + [author])[-2:]
             continue
 
-        # --- PRIORITY 4: NEW JUMP ---
+        # --- PRIORITY 4: JUMPS/ROLLBACKS (Verified Breaks) ---
         if is_verified:
             target_to_line_map[current_target] = i
-            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Jump ({diff:+})", "Status": "Active", "Debug": debug_info})
+            label = "Jump" if diff > 0 else "Rollback"
+            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{label} ({diff:+})", "Status": "Active", "Debug": debug_info})
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             last_valid_num, current_target = found_num, found_num + 1
             recent_authors = [author]
@@ -89,7 +97,7 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
         # --- PRIORITY 5: INVALID ---
         all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Invalid ({diff:+})", "Status": "N/A", "Debug": debug_info})
 
-    # ... (rest of filtering logic)
+    # Filtering logic remains the same
     res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
     if filter_mode == 2: res_m = res_m[res_m["Status"] != "N/A"]
     elif filter_mode == 3: res_m = res_m[res_m["Status"] == "Active"]
