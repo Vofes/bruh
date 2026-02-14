@@ -55,23 +55,27 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
             last_known_good_author = author
             continue 
 
-        # --- PRIORITY 2: REPETITIONS & SWAPS ---
+# --- PRIORITY 2: REPETITIONS & IMMEDIATE SWAPS ---
         if found_num == last_valid_num:
             fixed_via_swap = False
-            # Look for a 2-Person Rule mistake that this message might be "swapping" to fix
-            for m in reversed(all_mistakes):
-                if m["Reason"] == "2-Person Rule" and m["Status"] == "Active":
-                    if author != m["Author"]:
-                        m["Status"] = f"Fixed (Swap by {i})"
+            
+            # IMPROVED SWAP: Only look at the most recent mistake to avoid "Time Travel" fixes
+            if all_mistakes:
+                last_m = all_mistakes[-1]
+                if last_m["Reason"] == "2-Person Rule" and last_m["Status"] == "Active":
+                    # Check if this person is different from the one who messed up
+                    if author != last_m["Author"]:
+                        last_m["Status"] = f"Fixed (Swap by {i})"
                         all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
-                        recent_authors = (recent_authors[:-1] + [author])[-2:]
+                        # Update memory: The new valid author replaces the rule-breaker
+                        recent_authors = [recent_authors[0], author] if len(recent_authors) > 1 else [author]
                         fixed_via_swap = True
-                        break
             
             if not fixed_via_swap:
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A", "Debug": debug_info})
             continue
 
+        
         # --- PRIORITY 3: TARGET MATCH (Normal Chain) ---
         if found_num == current_target:
             if author in recent_authors:
