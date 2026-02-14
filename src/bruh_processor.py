@@ -18,18 +18,20 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
     all_mistakes, all_successes = [], []
     active_status, last_valid_num, current_target = False, None, None
     recent_authors = [] 
-    anchor_author = None 
+    
+    # --- THE DUAL-STATE SYSTEM ---
+    real_world_anchor = None  # This is the "God Anchor" from before any jump
+    jump_active = False       # Flag to tell us we are in a fake timeline
     target_to_line_map = {} 
 
     for idx, item in enumerate(bruh_rows):
         i, author, msg, found_num = item["index"], item["author"], item["msg"], item["num"]
         if end_num != 0 and found_num > end_num: break
 
-        # 1. INITIALIZATION
         if not active_status:
             if found_num == start_num:
                 active_status, last_valid_num, current_target = True, found_num, found_num + 1
-                anchor_author, recent_authors = author, [author]
+                real_world_anchor, recent_authors = author, [author]
                 all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             continue
 
@@ -37,16 +39,14 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
         is_verified = len(lookahead) == 3 and all(lookahead[k]["num"] == found_num + k + 1 for k in range(3))
         diff = found_num - last_valid_num
 
-        # --- PRIORITY 1: THE FIXER ---
-        # If this lands, we STITCH back to the Golden Anchor
+        # --- PRIORITY 1: THE FIXER (Recovery) ---
         if is_verified and found_num in target_to_line_map:
             origin_line = target_to_line_map[found_num]
             
-            # EXPLICIT OVERWRITE: Use the anchor from BEFORE the mess
-            # If nolife_idk is fixing, and cranim was the anchor, we FORCE ['cranim', 'nolife_idk']
-            old_anchor = anchor_author
-            if old_anchor and old_anchor != author:
-                recent_authors = [old_anchor, author]
+            # RECOVER: Use the God Anchor from BEFORE the jump happened
+            stitch_target = real_world_anchor
+            if stitch_target and stitch_target != author:
+                recent_authors = [stitch_target, author]
             else:
                 recent_authors = [author]
             
@@ -54,7 +54,7 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
             all_mistakes.append({
                 "Line": i, "Author": author, "Msg": msg, 
                 "Reason": f"{label} ({diff:+})", "Status": "Fixer", 
-                "Debug": f"STITCH_SUCCESS:UsedAnchor({old_anchor})_NewAuths({recent_authors})"
+                "Debug": f"STITCH_FROM_GOD_ANCHOR:{stitch_target}"
             })
             
             for m in all_mistakes:
@@ -63,15 +63,17 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
             
             target_to_line_map = {t: l for t, l in target_to_line_map.items() if l < origin_line}
             last_valid_num, current_target = found_num, found_num + 1
-            anchor_author = author # Now the Fixer becomes the new anchor
+            
+            # We are back in the real world
+            real_world_anchor = author 
+            jump_active = False
             continue 
 
         # --- PRIORITY 2: REPETITIONS & SWAPS ---
         if found_num == last_valid_num:
             fixed_via_swap = False
-            # Search limited back-window only
-            search_limit = all_mistakes[-3:] if len(all_mistakes) >= 3 else all_mistakes
-            for m in reversed(search_limit):
+            checks = all_mistakes[-3:] if len(all_mistakes) >= 3 else all_mistakes
+            for m in reversed(checks):
                 if m["Reason"] == "2-Person Rule" and m["Status"] == "Active":
                     if author != m["Author"]:
                         m["Status"] = f"Fixed (Swap by {i})"
@@ -80,7 +82,7 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
                         fixed_via_swap = True
                         break
             if not fixed_via_swap:
-                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A", "Debug": f"RecentAuths:{recent_authors}"})
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A", "Debug": f"Auths:{recent_authors}"})
             continue
 
         # --- PRIORITY 3: TARGET MATCH ---
@@ -95,26 +97,30 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
             
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             last_valid_num, current_target = found_num, found_num + 1
-            # Update the Anchor because the chain is moving correctly
-            anchor_author = author 
+            
+            # ONLY update the God Anchor if we aren't currently inside a Jump
+            if not jump_active:
+                real_world_anchor = author
+            
             recent_authors = (recent_authors + [author])[-2:]
             continue
 
-        # --- PRIORITY 4: JUMPS (THE LOCKDOWN) ---
+        # --- PRIORITY 4: JUMPS (Isolation Start) ---
         elif is_verified:
-            # SAVE the current target, but DO NOT change anchor_author
             target_to_line_map[current_target] = i
             label = "Jump" if diff > 0 else "Rollback"
+            
+            # We enter Jump Mode. real_world_anchor is now FROZEN.
+            jump_active = True
             
             all_mistakes.append({
                 "Line": i, "Author": author, "Msg": msg, 
                 "Reason": f"{label} ({diff:+})", "Status": "Active", 
-                "Debug": f"ANCHOR_LOCKED_ON:{anchor_author}"
+                "Debug": f"GOD_ANCHOR_FROZEN_AS:{real_world_anchor}"
             })
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             
             last_valid_num, current_target = found_num, found_num + 1
-            # We update recent_authors for the fake timeline, but anchor_author stays Golden
             recent_authors = [author] 
             continue
 
