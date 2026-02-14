@@ -63,8 +63,15 @@ st.divider()
 if run:
     with st.spinner("Analyzing the bruh-chain history..."):
         res_m, res_s, found, last_val, unique_count = process_bruh_logic(
-            df, start_bruh, end_bruh, jump_limit, hide_invalid
-        )
+                if run:
+                # Update the arguments here to match your UI variables
+                res_m, res_s, active_status, last_num, unique_count = process_bruh_logic(
+                    df, 
+                    start_bruh, 
+                    end_bruh, 
+                    jump_limit,      # Make sure this matches your input name
+                    filter_mode      # This replaces hide_invalid
+                )
     
     # METRICS
     m1, m2, m3, m4 = st.columns(4)
