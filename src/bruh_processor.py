@@ -19,9 +19,8 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
     active_status, last_valid_num, current_target = False, None, None
     recent_authors = [] 
     
-    # --- THE DUAL-STATE SYSTEM ---
-    real_world_anchor = None  # This is the "God Anchor" from before any jump
-    jump_active = False       # Flag to tell us we are in a fake timeline
+    real_world_anchor = None  
+    jump_active = False       
     target_to_line_map = {} 
 
     for idx, item in enumerate(bruh_rows):
@@ -39,32 +38,30 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
         is_verified = len(lookahead) == 3 and all(lookahead[k]["num"] == found_num + k + 1 for k in range(3))
         diff = found_num - last_valid_num
 
-        # --- PRIORITY 1: THE FIXER (Recovery) ---
-        if is_verified and found_num in target_to_line_map:
-            origin_line = target_to_line_map[found_num]
+        # --- PRIORITY 1: THE FIXER (Recovery & Smart Re-Entry) ---
+        # Logic: If verified AND (in history OR matching the original real-world target)
+        if is_verified and (found_num in target_to_line_map or (jump_active and found_num == current_target)):
+            # If it's a history match, use that origin; otherwise it's a re-entry to the main line
+            origin_line = target_to_line_map.get(found_num, i)
             
-            # RECOVER: Use the God Anchor from BEFORE the jump happened
             stitch_target = real_world_anchor
-            if stitch_target and stitch_target != author:
-                recent_authors = [stitch_target, author]
-            else:
-                recent_authors = [author]
+            recent_authors = [stitch_target, author] if stitch_target and stitch_target != author else [author]
             
             label = "Fixer (RB)" if diff < 0 else "Fixer (JP)"
             all_mistakes.append({
                 "Line": i, "Author": author, "Msg": msg, 
                 "Reason": f"{label} ({diff:+})", "Status": "Fixer", 
-                "Debug": f"STITCH_FROM_GOD_ANCHOR:{stitch_target}"
+                "Debug": f"STITCHED_TO:{stitch_target}"
             })
             
+            # Mark ALL active mistakes between the first break and this fix as Fixed
             for m in all_mistakes:
                 if m["Status"] == "Active" and origin_line <= m["Line"] < i:
                     m["Status"] = f"Fixed (by {i})"
             
+            # Clear target history for this branch
             target_to_line_map = {t: l for t, l in target_to_line_map.items() if l < origin_line}
             last_valid_num, current_target = found_num, found_num + 1
-            
-            # We are back in the real world
             real_world_anchor = author 
             jump_active = False
             continue 
@@ -97,20 +94,17 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
             
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             last_valid_num, current_target = found_num, found_num + 1
-            
-            # ONLY update the God Anchor if we aren't currently inside a Jump
-            if not jump_active:
-                real_world_anchor = author
-            
+            if not jump_active: real_world_anchor = author
             recent_authors = (recent_authors + [author])[-2:]
             continue
 
         # --- PRIORITY 4: JUMPS (Isolation Start) ---
         elif is_verified:
-            target_to_line_map[current_target] = i
-            label = "Jump" if diff > 0 else "Rollback"
+            # Check if we are already in a jump; if so, don't overwrite the very first origin line
+            if current_target not in target_to_line_map:
+                target_to_line_map[current_target] = i
             
-            # We enter Jump Mode. real_world_anchor is now FROZEN.
+            label = "Jump" if diff > 0 else "Rollback"
             jump_active = True
             
             all_mistakes.append({
