@@ -2,25 +2,17 @@ import pandas as pd
 import re
 
 def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
-    """
-    filter_mode: 
-    1 = Show All (Audit Mode)
-    2 = No Consensus (Hide N/A)
-    3 = Only Active (High Priority)
-    """
     pattern = re.compile(r'(?i)^bruh\s+(\d+)')
     cols_m = ["Line", "Author", "Msg", "Reason", "Status", "Debug"]
     cols_s = ["Line", "Author", "Msg", "Status"]
 
     # --- PRE-FILTER: Noise-Resistant Processing ---
-    # We strip out chat messages immediately so the lookahead only sees bruhs
     bruh_rows = []
     for i, row in df.iterrows():
         try:
             msg = str(row.iloc[3]).strip()
             match = pattern.match(msg)
             if match:
-                bruh_rows.append({"index": i, "author": str(row.iloc[1]), "msg": msg, "num": int(match.group(1))})
                 bruh_rows.append({
                     "index": i, 
                     "author": str(row.iloc[1]), 
@@ -30,22 +22,18 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
         except: continue
 
     all_mistakes, all_successes = [], []
-    active_status, last_valid_num, current_target = False, None, None
     active_status = False
     last_valid_num = None
     current_target = None
     
-    # Author Tracking
+    # Memory Tracking
     recent_authors = [] 
-    last_valid_author = None # The person who was correct BEFORE a jump
-    
-    # Gap Tracking
+    last_valid_author = None # Person valid BEFORE a jump
     target_to_line_map = {} 
 
     for idx, item in enumerate(bruh_rows):
         i, author, msg, found_num = item["index"], item["author"], item["msg"], item["num"]
         
-        # Stop if we hit the user-defined end number
         if end_num != 0 and found_num > end_num: break
 
         # --- INITIALIZATION ---
@@ -55,7 +43,6 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
                 last_valid_author = author
                 recent_authors = [author]
                 all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
-                recent_authors = [author] # Reset on start
             continue
 
         # --- CONSENSUS CHECK ---
@@ -63,34 +50,35 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
         is_verified = len(lookahead) == 3 and all(lookahead[k]["num"] == found_num + k + 1 for k in range(3))
         diff = found_num - last_valid_num
 
+        # Enhanced Debug Info: Shows target, the anchor of recovery, and current author memory
         history_list = sorted(list(target_to_line_map.keys()))
         recovery_anchor = history_list[0] if history_list else current_target
-        debug_info = f"Targ:{current_target}|Anch:{recovery_anchor}|Verif:{is_verified}"
+        debug_info = f"Targ:{current_target}|Anch:{recovery_anchor}|Auths:{recent_authors}|Verif:{is_verified}"
 
-        # --- STEP 1: SURGICAL FIXER ---
         # --- STEP 1: SURGICAL FIXER (Timeline Stitching) ---
         if is_verified and found_num in target_to_line_map:
             if found_num != current_target:
                 origin_line = target_to_line_map[found_num]
                 
-                # RECOVERY STITCH: Combine the person from before the mess with the person fixing it
-                recent_authors = [last_valid_author, author] if last_valid_author else [author]
+                # RECOVERY STITCH: Clear author history. 
+                # We only want the last valid person (pre-jump) and the current fixer.
+                if last_valid_author and last_valid_author != author:
+                    recent_authors = [last_valid_author, author]
+                else:
+                    recent_authors = [author]
                 
                 reason = "Fixer (RB)" if diff < 0 else "Fixer (JP)"
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Fixer", "Debug": debug_info})
 
-                # Surgical Wipe: Only mark mistakes from this specific timeline as fixed
+                # Mark previous mistakes in the broken timeline as Fixed
                 for m in all_mistakes:
                     if m["Status"] == "Active" and origin_line <= m["Line"] < i:
                         m["Status"] = f"Fixed (by {i})"
 
                 # Clean up history map
                 target_to_line_map = {t: l for t, l in target_to_line_map.items() if l < origin_line}
-                
-                # IMPORTANT: Reset recent authors to ONLY the person who fixed it
-                recent_authors = [author] 
             else:
-                # This was a target match that happened to be in history (rare)
+                # Normal target match that was also a recovery point
                 all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
                 if found_num in target_to_line_map: del target_to_line_map[found_num]
                 recent_authors = (recent_authors + [author])[-2:]
@@ -99,8 +87,7 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
             last_valid_author = author
             continue
 
-        # --- STEP 2: REPETITION ---
-        # --- STEP 2: REPETITION CHECK (-0) ---
+        # --- STEP 2: REPETITION / SWAP ---
         if found_num == last_valid_num:
             fixed_via_swap = False
             for m in reversed(all_mistakes):
@@ -108,7 +95,6 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
                     if author != m["Author"]:
                         m["Status"] = f"Fixed (Swap by {i})"
                         all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
-                        # Update authors on successful swap
                         recent_authors = (recent_authors[:-1] + [author])[-2:]
                         fixed_via_swap = True
                         break
@@ -117,55 +103,40 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
             continue
 
         # --- STEP 3: TARGET MATCH ---
-        # --- STEP 3: TARGET MATCH (Normal Flow) ---
         if found_num == current_target:
             if author in recent_authors:
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule", "Status": "Active", "Debug": debug_info})
-                # If they broke the rule, we don't update current_target unless verified
                 if not is_verified: continue 
 
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             last_valid_num, current_target = found_num, found_num + 1
             last_valid_author = author
             recent_authors = (recent_authors + [author])[-2:]
+            continue
 
-        # --- STEP 4: JUMP/ROLLBACK (New Mistake) ---
-        elif is_verified:
-        # --- STEP 4: JUMP/ROLLBACK (Timeline Break) ---
+        # --- STEP 4: TIMELINE BREAK (JUMP/ROLLBACK) ---
         elif is_verified and abs(diff) <= max_jump:
-            # We record the target we SHOULD have had to history
             target_to_line_map[current_target] = i
-            
             reason = "Jump" if diff > 0 else "Rollback"
+            
             all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Active", "Debug": debug_info})
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
-
-            all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+            
             last_valid_num, current_target = found_num, found_num + 1
-            # Reset memory for the new "fake" timeline branch
-            # We do NOT update last_valid_author here; we keep the person from BEFORE the jump
+            # Start fresh memory for the new branch; don't update last_valid_author
             recent_authors = [author]
+            continue
 
-        # --- STEP 5: INVALID ---
-        # --- STEP 5: INVALID / NO CONSENSUS ---
+        # --- STEP 5: NO CONSENSUS ---
         else:
             all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Invalid ({diff:+})", "Status": "N/A", "Debug": debug_info})
 
-    # (Filtering logic remains same...)
-    # --- FINAL FILTERING ---
+    # Final result processing
     res_m = pd.DataFrame(all_mistakes) if all_mistakes else pd.DataFrame(columns=cols_m)
     if filter_mode == 2: res_m = res_m[res_m["Status"] != "N/A"]
     elif filter_mode == 3: res_m = res_m[res_m["Status"] == "Active"]
-    
-    if filter_mode == 2:
-        res_m = res_m[res_m["Status"] != "N/A"]
-    elif filter_mode == 3:
-        res_m = res_m[res_m["Status"] == "Active"]
         
     res_s = pd.DataFrame(all_successes) if all_successes else pd.DataFrame(columns=cols_s)
-    return res_m, res_s, active_status, last_valid_num, len(res_s[res_s["Status"] == "CORRECT"])
-    
-    # Calculate unique successful counts (CORRECT rows only)
     unique_successful = len(res_s[res_s["Status"] == "CORRECT"])
     
     return res_m, res_s, active_status, last_valid_num, unique_successful
