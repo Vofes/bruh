@@ -22,19 +22,31 @@ with st.expander("📖 How to use the BotCheck Engine"):
 st.subheader("⚙️ Analysis Configuration")
 with st.container(border=True):
     # Row 1: Chain Settings
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
         start_bruh = st.number_input("Starting Bruh #", value=0)
     with c2:
         end_bruh = st.number_input("Ending Bruh # (0=End)", value=0)
     with c3:
-        jump_limit = st.number_input("Max Jump Allowed", value=100)
-    with c4:
-        hide_invalid = st.checkbox("Hide 'No Consensus'", value=False)
+        jump_limit = st.number_input("Max Jump Allowed", value=1500)
 
-    # Row 2: Viewer Settings
+    # Row 2: Filter Settings (The new 3-option selection)
+    st.write("🔍 **Mistake Display Mode**")
+    filter_mode = st.radio(
+        "Select what to show in the Mistakes Tab:",
+        options=[1, 2, 3],
+        format_func=lambda x: {
+            1: "Option 1: Show All (Audit Mode)",
+            2: "Option 2: No Consensus (Hide Repeats/Invalids)",
+            3: "Option 3: Only Active (High Priority)"
+        }[x],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+
+    # Row 3: Viewer Settings
     v1, v2, v3, v4 = st.columns([1, 1, 1, 1.5])
-    df = load_data() # Using central loader
+    df = load_data() 
     
     with v1:
         show_raw = st.toggle("Enable Raw Viewer", value=False)
@@ -43,11 +55,10 @@ with st.container(border=True):
     with v3:
         v_end = st.number_input("View End Row", value=len(df))
     with v4:
-        st.write("") # Spacer
+        st.write("") 
         run = st.button("🚀 Run Full Analysis", use_container_width=True, type="primary")
 
 st.divider()
-
 # --- 3. EXECUTION ---
 if run:
     with st.spinner("Analyzing the bruh-chain history..."):
