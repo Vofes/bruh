@@ -41,25 +41,39 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
         diff = found_num - last_valid_num
         debug_info = f"Targ:{current_target}|Verif:{is_verified}"
 
-        # --- STEP 1: FIXER CHECK ---
+# --- STEP 1: SURGICAL FIXER ---
         if is_verified and found_num in target_to_line_map:
             if found_num != current_target:
                 origin_line = target_to_line_map[found_num]
-                recent_authors = [last_valid_author, author] if last_valid_author else [author]
-                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"Fixer ({diff:+})", "Status": "Fixer", "Debug": debug_info})
+                
+                # HARD RESET: We don't append. We define exactly who is "recent".
+                # This kills any 'ghosts' from the jumped timeline.
+                if last_valid_author and last_valid_author != author:
+                    recent_authors = [last_valid_author, author]
+                else:
+                    recent_authors = [author]
+                
+                reason = "Fixer (RB)" if diff < 0 else "Fixer (JP)"
+                all_mistakes.append({
+                    "Line": i, "Author": author, "Msg": msg, 
+                    "Reason": f"{reason} ({diff:+})", "Status": "Fixer", "Debug": debug_info
+                })
+                
                 for m in all_mistakes:
                     if m["Status"] == "Active" and origin_line <= m["Line"] < i:
                         m["Status"] = f"Fixed (by {i})"
+                
                 target_to_line_map = {t: l for t, l in target_to_line_map.items() if l < origin_line}
             else:
                 all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
                 if found_num in target_to_line_map: del target_to_line_map[found_num]
                 recent_authors = (recent_authors + [author])[-2:]
-            
+
             last_valid_num, current_target = found_num, found_num + 1
             last_valid_author = author
             continue
 
+        
         # --- STEP 2: REPETITION ---
         if found_num == last_valid_num:
             # (Swap logic omitted for brevity, same as before)
