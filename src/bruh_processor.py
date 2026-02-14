@@ -32,12 +32,10 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
                 recent_authors = [author]
             continue
 
-        # CONSENSUS CHECK
         lookahead = bruh_rows[idx+1 : idx+4]
         is_verified = len(lookahead) == 3 and all(lookahead[k]["num"] == found_num + k + 1 for k in range(3))
         diff = found_num - last_valid_num
         
-        # DEBUG STRING Construction
         debug_info = f"Targ:{current_target} | Anch:{recovery_anchor} | Verif:{is_verified}"
 
         # --- 1. REPETITION ---
@@ -56,22 +54,26 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "Repetition", "Status": "N/A", "Debug": debug_info})
             continue
 
-        # --- 2. TIMELINE FIXER ---
-        if is_verified and found_num == recovery_anchor and found_num != current_target:
-            reason = "Fixer (RB)" if diff < 0 else "Fixer (JP)"
-            all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Fixer", "Debug": debug_info})
+        # --- 2. TIMELINE FIXER (The Fix) ---
+        # Logic: If it's verified AND matches the anchor OR matches the target before a jump
+        if is_verified and (found_num == recovery_anchor or (recovery_anchor is None and found_num == current_target)):
+            is_fixing = found_num != current_target or "Fixer" in [m["Status"] for m in all_mistakes[-1:]]
             
-            for m in all_mistakes:
-                if m["Status"] == "Active" and m["Line"] < i:
-                    m["Status"] = f"Fixed (by {i})"
-            
-            all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+            if is_fixing:
+                reason = "Fixer (RB)" if diff < 0 else "Fixer (JP)"
+                all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Fixer", "Debug": debug_info})
+                for m in all_mistakes:
+                    if m["Status"] == "Active" and m["Line"] < i:
+                        m["Status"] = f"Fixed (by {i})"
+            else:
+                all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
+
             last_valid_num, current_target = found_num, found_num + 1
             recovery_anchor = current_target
             recent_authors = (recent_authors + [author])[-2:]
             continue
 
-        # --- 3. TARGET MATCH ---
+        # --- 3. TARGET MATCH (Normal) ---
         if found_num == current_target:
             if author in recent_authors:
                 all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": "2-Person Rule", "Status": "Active", "Debug": debug_info})
@@ -79,11 +81,13 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, hide_invalid=Fal
             
             all_successes.append({"Line": i, "Author": author, "Msg": msg, "Status": "CORRECT"})
             last_valid_num, current_target = found_num, found_num + 1
-            if recovery_anchor == found_num: recovery_anchor = current_target
+            recovery_anchor = current_target # Keep anchor synced while path is clean
             recent_authors = (recent_authors + [author])[-2:]
 
-        # --- 4. VERIFIED JUMPS/ROLLBACKS ---
-        elif is_verified and abs(diff) <= max_jump:
+        # --- 4. VERIFIED JUMPS/ROLLBACKS (The Break) ---
+        elif is_verified:
+            # When the chain breaks, the recovery_anchor STOPS moving. 
+            # It stays at the current_target (the first missing number).
             reason = "Jump" if diff > 0 else "Rollback"
             all_mistakes.append({"Line": i, "Author": author, "Msg": msg, "Reason": f"{reason} ({diff:+})", "Status": "Active", "Debug": debug_info})
             
