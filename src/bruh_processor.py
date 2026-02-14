@@ -46,8 +46,9 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
             if found_num != current_target:
                 origin_line = target_to_line_map[found_num]
                 
-                # HARD RESET: We don't append. We define exactly who is "recent".
-                # This kills any 'ghosts' from the jumped timeline.
+                # RECOVERY STITCH: We reset recent_authors to ONLY include 
+                # the last valid person (pre-jump) and the current fixer.
+                # This explicitly deletes _wynaut_ from the list if he talked during the mess.
                 if last_valid_author and last_valid_author != author:
                     recent_authors = [last_valid_author, author]
                 else:
@@ -70,9 +71,8 @@ def process_bruh_logic(df, start_num, end_num=0, max_jump=1500, filter_mode=1):
                 recent_authors = (recent_authors + [author])[-2:]
 
             last_valid_num, current_target = found_num, found_num + 1
-            last_valid_author = author
+            last_valid_author = author # The fixer is now the latest valid author
             continue
-
         
         # --- STEP 2: REPETITION ---
         if found_num == last_valid_num:
